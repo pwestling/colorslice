@@ -1,0 +1,7 @@
+.env*
+.playwright-cli/
+.pytest_cache/
+output/
+data/*
+!data/seed.db
+**/__pycache__/
