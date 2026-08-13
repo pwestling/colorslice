@@ -1,7 +1,6 @@
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from dataclasses import asdict
 from functools import partial
 import gzip
 import json
@@ -44,11 +43,6 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--upload-url")
-    parser.add_argument(
-        "--upload-token",
-        default=os.environ.get("COLORSLICE_IMPORT_TOKEN"),
-    )
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     return parser.parse_args()
 
@@ -191,56 +185,6 @@ def analyze_candidate(
     return AnalysisResult(candidate=candidate, profile=None, error=last_error)
 
 
-def upload_entries(
-    client: httpx.Client,
-    upload_url: str,
-    upload_token: str,
-    entries: list[
-        tuple[
-            ArtworkRecord,
-            tuple[float, ...],
-            tuple[float, ...],
-            float,
-            float,
-        ]
-    ],
-) -> None:
-    payload_entries = [
-        {
-            "record": asdict(record),
-            "hue_histogram": hue_histogram,
-            "area_hue_histogram": area_hue_histogram,
-            "dominant_hue": dominant_hue,
-            "colorfulness": colorfulness,
-        }
-        for (
-            record,
-            hue_histogram,
-            area_hue_histogram,
-            dominant_hue,
-            colorfulness,
-        ) in entries
-    ]
-    for attempt in range(3):
-        try:
-            response = client.post(
-                upload_url,
-                headers={"x-colorslice-import-token": upload_token},
-                json={"entries": payload_entries},
-                timeout=60.0,
-            )
-            response.raise_for_status()
-            result = response.json()
-            accepted = len(result.get("stored", [])) + len(result.get("existing", []))
-            if accepted != len(entries):
-                raise ValueError("Import endpoint did not accept the complete batch")
-            return
-        except (httpx.HTTPError, ValueError):
-            if attempt == 2:
-                raise
-            time.sleep(1.0 * (2**attempt))
-
-
 def _existing_illustration_ids(
     repository: ArtworkRepository,
     card_illustrations: dict[str, str],
@@ -275,9 +219,6 @@ def main():
         raise SystemExit("--batch-size must be positive")
     if args.limit is not None and args.limit <= 0:
         raise SystemExit("--limit must be positive")
-    if bool(args.upload_url) != bool(args.upload_token):
-        raise SystemExit("--upload-url and --upload-token must be provided together")
-
     repository = ArtworkRepository(args.database_url)
     repository.initialize()
     candidates, card_illustrations = load_unique_candidates(args.bulk_file)
@@ -334,14 +275,7 @@ def main():
                     )
                     checkpoint_entries.append((illustration_id, "stored", None))
 
-                if inserts and args.upload_url and args.upload_token:
-                    upload_entries(
-                        client,
-                        args.upload_url,
-                        args.upload_token,
-                        inserts,
-                    )
-                elif inserts:
+                if inserts:
                     repository.upsert_many(inserts)
                 append_checkpoint(args.checkpoint, checkpoint_entries)
                 stored += len(inserts)
