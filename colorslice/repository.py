@@ -663,6 +663,7 @@ class ArtworkRepository:
         self,
         sections: tuple[tuple[float, float], ...],
         sources: tuple[str, ...],
+        minimum_raw_coverage: float = 0.0,
         candidate_limit: int = 50_000,
     ) -> list[Artwork]:
         if not self.is_postgres:
@@ -684,6 +685,18 @@ class ArtworkRepository:
                 "AND (hue_mask & %s::bit(72)) <> %s::bit(72) "
                 f"AND ({raw_mass}) >= %s"
             )
+        selected = _selected_mask(sections)
+        selected_bins = [
+            index for index, bit in enumerate(selected) if bit == "1"
+        ]
+        hue_coverage = " + ".join(
+            f"COALESCE((hue_histogram ->> {index})::double precision, 0.0)"
+            for index in selected_bins
+        ) or "0.0"
+        area_coverage = " + ".join(
+            f"COALESCE((area_hue_histogram ->> {index})::double precision, 0.0)"
+            for index in selected_bins
+        ) or "0.0"
         query = f"""
             SELECT id, source, source_id, title, artist, year, image_url,
                    thumbnail_url, source_url, license_label, hue_histogram,
@@ -692,6 +705,8 @@ class ArtworkRepository:
             WHERE ({source_clause})
               AND hue_mask IS NOT NULL
               {" ".join(presence_clauses)}
+              AND ({hue_coverage}) >= %s
+              AND ({area_coverage}) >= %s
             ORDER BY colorfulness DESC
             LIMIT %s
         """
@@ -704,6 +719,7 @@ class ArtworkRepository:
                     MINIMUM_RAW_SECTION_PRESENCE,
                 )
             )
+        parameters.extend((minimum_raw_coverage, minimum_raw_coverage))
         parameters.append(candidate_limit)
         with self._connection() as connection:
             rows = connection.execute(query, parameters).fetchall()
@@ -764,7 +780,21 @@ class ArtworkRepository:
             if len(exact_ranked) >= minimum_results:
                 return 1.0, exact_ranked[:limit]
 
-        ranked = self._rank_section_candidates(sections, sources)
+        if self.exact_masks_ready and self.is_postgres:
+            ranked = []
+            for raw_coverage in (0.90, 0.80, 0.60, 0.0):
+                ranked = self._rank_section_artworks(
+                    self._fetch_present_section_candidates(
+                        sections,
+                        sources,
+                        minimum_raw_coverage=raw_coverage,
+                    ),
+                    sections,
+                )
+                if len(ranked) >= minimum_results:
+                    break
+        else:
+            ranked = self._rank_section_candidates(sections, sources)
         at_maximum = [
             match for match in ranked if match.coverage >= maximum_coverage
         ]
