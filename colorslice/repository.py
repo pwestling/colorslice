@@ -658,6 +658,41 @@ class ArtworkRepository:
             rows = connection.execute(query, parameters).fetchall()
         return [Artwork.from_mapping(dict(row)) for row in rows]
 
+    def _fetch_present_section_candidates(
+        self,
+        sections: tuple[tuple[float, float], ...],
+        sources: tuple[str, ...],
+        candidate_limit: int = 50_000,
+    ) -> list[Artwork]:
+        if not self.is_postgres:
+            raise RuntimeError("Hue-mask search requires Postgres")
+
+        source_values = sources or ("magic", "met")
+        source_clause = " OR ".join("source = %s" for _ in source_values)
+        presence_masks = [_selected_mask((section,)) for section in sections]
+        presence_clauses = "\n".join(
+            "AND (hue_mask & %s::bit(72)) <> %s::bit(72)"
+            for _ in presence_masks
+        )
+        query = f"""
+            SELECT id, source, source_id, title, artist, year, image_url,
+                   thumbnail_url, source_url, license_label, hue_histogram,
+                   area_hue_histogram, dominant_hue, colorfulness
+            FROM artworks
+            WHERE ({source_clause})
+              AND hue_mask IS NOT NULL
+              {presence_clauses}
+            ORDER BY colorfulness DESC
+            LIMIT %s
+        """
+        parameters: list[Any] = [*source_values]
+        for presence_mask in presence_masks:
+            parameters.extend((presence_mask, ZERO_HUE_MASK))
+        parameters.append(candidate_limit)
+        with self._connection() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [Artwork.from_mapping(dict(row)) for row in rows]
+
     def search(
         self,
         *,
@@ -739,6 +774,12 @@ class ArtworkRepository:
         sections: tuple[tuple[float, float], ...],
         sources: tuple[str, ...],
     ) -> list[ArtworkMatch]:
+        if self.exact_masks_ready and self.is_postgres:
+            return self._rank_section_artworks(
+                self._fetch_present_section_candidates(sections, sources),
+                sections,
+            )
+
         candidates_by_id: dict[str, Artwork] = {}
         for center, span in sections:
             for artwork in self._fetch_candidates(center, span, sources):
