@@ -38,3 +38,9 @@ The root `main.py` exposes the ASGI app expected by Vercel. With `DATABASE_URL`,
 the app creates its Postgres schema and copies the bundled starter catalog into
 an empty database on first boot. Without Postgres, Vercel copies `data/seed.db`
 to its writable temporary filesystem so the starter gallery still works.
+
+## License
+
+The Colorslice source code is available under the [MIT License](LICENSE).
+Third-party artwork remains subject to the rights of its respective owners;
+the MIT License does not grant rights to those images.
