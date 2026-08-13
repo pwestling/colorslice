@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.local
+.venv/
+.vercel/
+.playwright-cli/
+.sesskey
+__pycache__/
+*.py[cod]
+.pytest_cache/
+data/*.db
+data/*.db-*
+!data/seed.db
+data/downloads/
+output/
+.vercel
+.env*.local

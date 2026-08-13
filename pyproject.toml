@@ -1,0 +1,29 @@
+[project]
+name = "colorslice"
+version = "0.1.0"
+description = "Find human-made artwork within a selected slice of the color wheel."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "numpy>=2.2.0",
+    "pillow>=11.2.0",
+    "psycopg[binary]>=3.2.9",
+    "python-fasthtml==0.14.11",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.uv]
+package = false
+
+[tool.vercel]
+entrypoint = "main:app"

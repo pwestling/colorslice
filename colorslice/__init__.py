@@ -1,0 +1,1 @@
+"""Colorslice application package."""
