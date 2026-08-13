@@ -173,3 +173,59 @@ def test_health_endpoint_reports_catalog_size():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["database"] == "sqlite"
+
+
+def test_internal_import_requires_token(monkeypatch):
+    monkeypatch.setenv("COLORSLICE_IMPORT_TOKEN", "expected")
+
+    response = client.post(
+        "/internal/artworks/import",
+        headers={"x-colorslice-import-token": "incorrect"},
+        json={"entries": []},
+    )
+
+    assert response.status_code == 404
+
+
+def test_internal_import_batches_new_artwork(monkeypatch):
+    monkeypatch.setenv("COLORSLICE_IMPORT_TOKEN", "expected")
+    histogram = [1.0] + [0.0] * 71
+    captured = []
+
+    monkeypatch.setattr(repository, "existing_record_source_ids", lambda records: set())
+    monkeypatch.setattr(repository, "upsert_many", lambda entries: captured.extend(entries))
+    monkeypatch.setattr(repository, "count", lambda sources=(): 123)
+    response = client.post(
+        "/internal/artworks/import",
+        headers={"x-colorslice-import-token": "expected"},
+        json={
+            "entries": [
+                {
+                    "record": {
+                        "source_id": "illustration:art-id",
+                        "title": "Artwork",
+                        "artist": "Artist",
+                        "year": 2020,
+                        "image_url": "https://example.com/art.jpg",
+                        "thumbnail_url": "https://example.com/art.jpg",
+                        "analysis_url": "https://example.com/art.jpg",
+                        "source_url": "https://example.com/card",
+                        "license_label": "© Wizards of the Coast",
+                        "source": "magic",
+                    },
+                    "hue_histogram": histogram,
+                    "area_hue_histogram": histogram,
+                    "dominant_hue": 2.5,
+                    "colorfulness": 0.5,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "stored": ["illustration:art-id"],
+        "existing": [],
+        "catalog_size": 123,
+    }
+    assert len(captured) == 1

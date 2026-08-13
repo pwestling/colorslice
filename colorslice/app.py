@@ -1,6 +1,8 @@
 from functools import lru_cache
 import math
+import os
 from pathlib import Path
+import secrets
 
 from fasthtml.common import (
     A,
@@ -29,7 +31,7 @@ from starlette.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from colorslice.color import hue_name
-from colorslice.models import ArtworkMatch
+from colorslice.models import HUE_BIN_COUNT, ArtworkMatch, ArtworkRecord
 from colorslice.repository import (
     CATALOG_PROFILE_VERSION,
     ArtworkRepository,
@@ -221,6 +223,78 @@ def _parse_custom_sections(value: str) -> tuple[tuple[float, float], ...]:
         center = (start + span / 2.0) % 360.0
         sections.append((round(center, 3), round(span, 3)))
     return tuple(sections)
+
+
+def _profile_values(value: object) -> tuple[float, ...]:
+    if not isinstance(value, list) or len(value) != HUE_BIN_COUNT:
+        raise ValueError("Invalid hue profile")
+    profile = tuple(float(item) for item in value)
+    if any(not math.isfinite(item) or item < 0.0 for item in profile):
+        raise ValueError("Invalid hue profile")
+    return profile
+
+
+def _import_entry(value: object):
+    if not isinstance(value, dict):
+        raise ValueError("Invalid import entry")
+    raw_record = value.get("record")
+    if not isinstance(raw_record, dict):
+        raise ValueError("Invalid artwork record")
+
+    source_id = raw_record.get("source_id")
+    title = raw_record.get("title")
+    artist = raw_record.get("artist")
+    image_url = raw_record.get("image_url")
+    thumbnail_url = raw_record.get("thumbnail_url")
+    source_url = raw_record.get("source_url")
+    license_label = raw_record.get("license_label")
+    if not all(
+        isinstance(item, str) and item
+        for item in (
+            source_id,
+            title,
+            artist,
+            image_url,
+            thumbnail_url,
+            source_url,
+            license_label,
+        )
+    ):
+        raise ValueError("Invalid artwork record")
+    if not source_id.startswith("illustration:"):
+        raise ValueError("Invalid illustration identifier")
+
+    raw_year = raw_record.get("year")
+    if raw_year is not None and not isinstance(raw_year, int):
+        raise ValueError("Invalid artwork year")
+    record = ArtworkRecord(
+        source="magic",
+        source_id=source_id,
+        title=title,
+        artist=artist,
+        year=raw_year,
+        image_url=image_url,
+        thumbnail_url=thumbnail_url,
+        analysis_url=image_url,
+        source_url=source_url,
+        license_label=license_label,
+    )
+    dominant_hue = float(value.get("dominant_hue", -1.0))
+    colorfulness = float(value.get("colorfulness", -1.0))
+    if (
+        not math.isfinite(dominant_hue)
+        or not 0.0 <= dominant_hue <= 360.0
+        or not math.isfinite(colorfulness)
+        or not 0.0 <= colorfulness <= 1.0
+    ):
+        raise ValueError("Invalid artwork profile metadata")
+    return (
+        record,
+        _profile_values(value.get("hue_histogram")),
+        _profile_values(value.get("area_hue_histogram")),
+        dominant_hue,
+        colorfulness,
+    )
 
 
 def _next_offset(offset: int, returned: int, total: int) -> str:
@@ -519,5 +593,38 @@ def get():
             "status": "ok",
             "artworks": repository.count(),
             "database": "postgres" if repository.is_postgres else "sqlite",
+        }
+    )
+
+
+@rt("/internal/artworks/import")
+async def post(request: Request):
+    expected_token = os.environ.get("COLORSLICE_IMPORT_TOKEN")
+    supplied_token = request.headers.get("x-colorslice-import-token", "")
+    if (
+        not expected_token
+        or not supplied_token
+        or not secrets.compare_digest(expected_token, supplied_token)
+    ):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    try:
+        payload = await request.json()
+        raw_entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(raw_entries, list) or not 1 <= len(raw_entries) <= 100:
+            raise ValueError("Import batches must contain 1–100 entries")
+        entries = [_import_entry(value) for value in raw_entries]
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid import batch"}, status_code=400)
+
+    records = [entry[0] for entry in entries]
+    existing = repository.existing_record_source_ids(records)
+    new_entries = [entry for entry in entries if entry[0].source_id not in existing]
+    repository.upsert_many(new_entries)
+    return JSONResponse(
+        {
+            "stored": [entry[0].source_id for entry in new_entries],
+            "existing": sorted(existing),
+            "catalog_size": repository.count(("magic",)),
         }
     )

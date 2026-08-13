@@ -220,26 +220,63 @@ class ArtworkRepository:
         dominant_hue: float,
         colorfulness: float,
     ) -> None:
-        if len(hue_histogram) != HUE_BIN_COUNT:
-            raise ValueError(f"Expected {HUE_BIN_COUNT} hue bins")
-        if len(area_hue_histogram) != HUE_BIN_COUNT:
-            raise ValueError(f"Expected {HUE_BIN_COUNT} area hue bins")
-        values = (
-            record.id,
-            record.source,
-            record.source_id,
-            record.title,
-            record.artist,
-            record.year,
-            record.image_url,
-            record.thumbnail_url,
-            record.source_url,
-            record.license_label,
-            json.dumps(hue_histogram),
-            json.dumps(area_hue_histogram),
+        self.upsert_many(
+            [
+                (
+                    record,
+                    hue_histogram,
+                    area_hue_histogram,
+                    dominant_hue,
+                    colorfulness,
+                )
+            ]
+        )
+
+    def upsert_many(
+        self,
+        entries: list[
+            tuple[
+                ArtworkRecord,
+                tuple[float, ...],
+                tuple[float, ...],
+                float,
+                float,
+            ]
+        ],
+    ) -> None:
+        values = []
+        for (
+            record,
+            hue_histogram,
+            area_hue_histogram,
             dominant_hue,
             colorfulness,
-        )
+        ) in entries:
+            if len(hue_histogram) != HUE_BIN_COUNT:
+                raise ValueError(f"Expected {HUE_BIN_COUNT} hue bins")
+            if len(area_hue_histogram) != HUE_BIN_COUNT:
+                raise ValueError(f"Expected {HUE_BIN_COUNT} area hue bins")
+            values.append(
+                (
+                    record.id,
+                    record.source,
+                    record.source_id,
+                    record.title,
+                    record.artist,
+                    record.year,
+                    record.image_url,
+                    record.thumbnail_url,
+                    record.source_url,
+                    record.license_label,
+                    json.dumps(hue_histogram),
+                    json.dumps(area_hue_histogram),
+                    dominant_hue,
+                    colorfulness,
+                )
+            )
+        if not values:
+            return
+
         with self._connection() as connection:
             if self.is_postgres:
                 query = """
@@ -284,7 +321,11 @@ class ArtworkRepository:
                         dominant_hue = excluded.dominant_hue,
                         colorfulness = excluded.colorfulness
                 """
-            connection.execute(query, values)
+            if self.is_postgres:
+                with connection.cursor() as cursor:
+                    cursor.executemany(query, values)
+            else:
+                connection.executemany(query, values)
             connection.commit()
 
     def all_artworks(self) -> list[Artwork]:
@@ -299,6 +340,45 @@ class ArtworkRepository:
                 """
             ).fetchall()
         return [Artwork.from_mapping(dict(row)) for row in rows]
+
+    def existing_record_source_ids(
+        self,
+        records: list[ArtworkRecord],
+    ) -> set[str]:
+        if not records:
+            return set()
+        source = records[0].source
+        if any(record.source != source for record in records):
+            raise ValueError("All records must use the same source")
+
+        placeholder = "%s" if self.is_postgres else "?"
+        source_ids = tuple(record.source_id for record in records)
+        image_urls = tuple(record.image_url for record in records)
+        source_id_placeholders = ", ".join(placeholder for _ in source_ids)
+        image_url_placeholders = ", ".join(placeholder for _ in image_urls)
+        query = f"""
+            SELECT source_id, image_url
+            FROM artworks
+            WHERE source = {placeholder}
+              AND (
+                source_id IN ({source_id_placeholders})
+                OR image_url IN ({image_url_placeholders})
+              )
+        """
+        with self._connection() as connection:
+            rows = connection.execute(
+                query,
+                (source, *source_ids, *image_urls),
+            ).fetchall()
+
+        existing_source_ids = {str(dict(row)["source_id"]) for row in rows}
+        existing_image_urls = {str(dict(row)["image_url"]) for row in rows}
+        return {
+            record.source_id
+            for record in records
+            if record.source_id in existing_source_ids
+            or record.image_url in existing_image_urls
+        }
 
     def update_profiles(
         self,
