@@ -25,6 +25,7 @@ from colorslice.models import Artwork, ArtworkMatch, ArtworkRecord, HUE_BIN_COUN
 
 CATALOG_PROFILE_VERSION = 2
 MINIMUM_SECTION_PRESENCE = 0.02
+MINIMUM_RAW_SECTION_PRESENCE = 0.01
 ZERO_HUE_MASK = "0" * HUE_BIN_COUNT
 
 
@@ -670,10 +671,19 @@ class ArtworkRepository:
         source_values = sources or ("magic", "met")
         source_clause = " OR ".join("source = %s" for _ in source_values)
         presence_masks = [_selected_mask((section,)) for section in sections]
-        presence_clauses = "\n".join(
-            "AND (hue_mask & %s::bit(72)) <> %s::bit(72)"
-            for _ in presence_masks
-        )
+        presence_clauses = []
+        for presence_mask in presence_masks:
+            selected_bins = [
+                index for index, bit in enumerate(presence_mask) if bit == "1"
+            ]
+            raw_mass = " + ".join(
+                f"COALESCE((hue_histogram ->> {index})::double precision, 0.0)"
+                for index in selected_bins
+            ) or "0.0"
+            presence_clauses.append(
+                "AND (hue_mask & %s::bit(72)) <> %s::bit(72) "
+                f"AND ({raw_mass}) >= %s"
+            )
         query = f"""
             SELECT id, source, source_id, title, artist, year, image_url,
                    thumbnail_url, source_url, license_label, hue_histogram,
@@ -681,13 +691,19 @@ class ArtworkRepository:
             FROM artworks
             WHERE ({source_clause})
               AND hue_mask IS NOT NULL
-              {presence_clauses}
+              {" ".join(presence_clauses)}
             ORDER BY colorfulness DESC
             LIMIT %s
         """
         parameters: list[Any] = [*source_values]
         for presence_mask in presence_masks:
-            parameters.extend((presence_mask, ZERO_HUE_MASK))
+            parameters.extend(
+                (
+                    presence_mask,
+                    ZERO_HUE_MASK,
+                    MINIMUM_RAW_SECTION_PRESENCE,
+                )
+            )
         parameters.append(candidate_limit)
         with self._connection() as connection:
             rows = connection.execute(query, parameters).fetchall()
