@@ -1,4 +1,5 @@
 from functools import lru_cache
+import math
 from pathlib import Path
 
 from fasthtml.common import (
@@ -42,6 +43,7 @@ RESULT_LIMIT = 10_000
 INITIAL_RESULT_LIMIT = 24
 RESULT_PAGE_SIZE = 96
 WHEEL_SEGMENT_DEGREES = 15.0
+CUSTOM_MINIMUM_RESULTS = 5
 repository = ArtworkRepository()
 repository.initialize()
 if repository.is_postgres:
@@ -178,6 +180,49 @@ def _cached_matches(
     return strictness, tuple(matches)
 
 
+@lru_cache(maxsize=192)
+def _cached_section_matches(
+    sections: tuple[tuple[float, float], ...],
+    strictness: float,
+    sources: tuple[str, ...],
+) -> tuple[float, tuple[ArtworkMatch, ...]]:
+    if len(sections) > 1:
+        strictness, matches = repository.search_sections_strictest(
+            sections=sections,
+            sources=sources,
+            minimum_results=CUSTOM_MINIMUM_RESULTS,
+            maximum_coverage=strictness,
+            limit=RESULT_LIMIT,
+        )
+    else:
+        matches = repository.search_sections(
+            sections=sections,
+            minimum_coverage=strictness,
+            sources=sources,
+            limit=RESULT_LIMIT,
+        )
+    return strictness, tuple(matches)
+
+
+def _parse_custom_sections(value: str) -> tuple[tuple[float, float], ...]:
+    sections = []
+    for raw_section in value.split(",")[:4]:
+        try:
+            raw_start, raw_end = raw_section.split(":", maxsplit=1)
+            start = float(raw_start) % 360.0
+            end = float(raw_end) % 360.0
+        except ValueError:
+            continue
+        if not math.isfinite(start) or not math.isfinite(end):
+            continue
+        span = (end - start) % 360.0
+        if span < 1.0 or span > 359.0:
+            continue
+        center = (start + span / 2.0) % 360.0
+        sections.append((round(center, 3), round(span, 3)))
+    return tuple(sections)
+
+
 def _next_offset(offset: int, returned: int, total: int) -> str:
     next_offset = offset + returned
     return str(next_offset) if next_offset < total else ""
@@ -205,18 +250,31 @@ def artwork_results(
     sources: tuple[str, ...],
     auto_min_results: int = 0,
     mode: str = "standard",
+    sections: tuple[tuple[float, float], ...] = (),
 ):
     matching_span = _matching_span(span, mode)
-    strictness, matches = _cached_matches(
-        center,
-        matching_span,
-        strictness,
-        sources,
-        auto_min_results,
-    )
+    if mode == "custom" and sections:
+        strictness, matches = _cached_section_matches(sections, strictness, sources)
+        section_count = len(sections)
+        matching_span = sum(section_span for _, section_span in sections)
+        heading_text = (
+            f"{round(matching_span)}° across {section_count} sections"
+            if section_count > 1
+            else f"{round(matching_span)}° of {hue_name(sections[0][0])}"
+        )
+    else:
+        strictness, matches = _cached_matches(
+            center,
+            matching_span,
+            strictness,
+            sources,
+            auto_min_results,
+        )
+        section_count = 1
+        heading_text = f"{round(span)}° of {hue_name(center)}"
     heading = Div(
         H2(
-            f"{round(span)}° of {hue_name(center)}",
+            heading_text,
             Span(f" · {len(matches)} matches", cls="result-count"),
             cls="results-title",
         ),
@@ -224,6 +282,7 @@ def artwork_results(
         data_strictness=f"{strictness:.3f}",
         data_match_span=f"{matching_span:.1f}",
         data_mode=mode,
+        data_sections=str(section_count),
     )
     content = (
         _artwork_grid(matches)
@@ -240,9 +299,13 @@ def artwork_page(
     sources: tuple[str, ...],
     offset: int,
     mode: str = "standard",
+    sections: tuple[tuple[float, float], ...] = (),
 ):
     matching_span = _matching_span(span, mode)
-    _, matches = _cached_matches(center, matching_span, strictness, sources, 0)
+    if mode == "custom" and sections:
+        _, matches = _cached_section_matches(sections, strictness, sources)
+    else:
+        _, matches = _cached_matches(center, matching_span, strictness, sources, 0)
     page = matches[offset:offset + RESULT_PAGE_SIZE]
     return Div(
         *(_artwork_card(match) for match in page),
@@ -258,6 +321,7 @@ def _control_panel(counts: dict[str, int]):
         Input(type="hidden", id="center-input", name="center", value="75"),
         Input(type="hidden", id="span-input", name="span", value="120"),
         Input(type="hidden", id="mode-input", name="mode", value="standard"),
+        Input(type="hidden", id="ranges-input", name="ranges", value=""),
         Input(type="hidden", name="strictness", value="1"),
         Div(
             Div(
@@ -290,48 +354,18 @@ def _control_panel(counts: dict[str, int]):
                         Strong("120°", id="custom-angle"),
                         Span(" · "),
                         Span("33.3% of wheel", id="custom-percent"),
+                        Span(" · "),
+                        Span("1 section", id="custom-section-count"),
                         cls="custom-summary",
                     ),
                     Div(
-                        Div(
-                            Span("START", cls="custom-edge-label"),
-                            Button(
-                                "−",
-                                type="button",
-                                data_custom_edge="start",
-                                data_custom_delta="-1",
-                                aria_label="Move start edge counterclockwise by 1 degree",
-                            ),
-                            Span("15°", id="custom-start"),
-                            Button(
-                                "+",
-                                type="button",
-                                data_custom_edge="start",
-                                data_custom_delta="1",
-                                aria_label="Move start edge clockwise by 1 degree",
-                            ),
-                            cls="custom-edge-control",
+                        Button(
+                            "+ Add section",
+                            type="button",
+                            id="add-custom-section",
+                            cls="custom-section-action",
                         ),
-                        Div(
-                            Span("END", cls="custom-edge-label"),
-                            Button(
-                                "−",
-                                type="button",
-                                data_custom_edge="end",
-                                data_custom_delta="-1",
-                                aria_label="Move end edge counterclockwise by 1 degree",
-                            ),
-                            Span("135°", id="custom-end"),
-                            Button(
-                                "+",
-                                type="button",
-                                data_custom_edge="end",
-                                data_custom_delta="1",
-                                aria_label="Move end edge clockwise by 1 degree",
-                            ),
-                            cls="custom-edge-control",
-                        ),
-                        cls="custom-edge-controls",
+                        cls="custom-section-actions",
                     ),
                     id="custom-controls",
                     cls="custom-controls",
@@ -420,6 +454,7 @@ def get(
     strictness: float = 1.0,
     auto_min_results: int = 0,
     mode: str = "standard",
+    ranges: str = "",
 ):
     sources = tuple(request.query_params.getlist("source"))
     allowed_sources = tuple(source for source in sources if source in {"magic", "met"})
@@ -432,6 +467,7 @@ def get(
     )
     safe_strictness = min(1.0, max(0.0, strictness))
     safe_auto_minimum = min(30, max(0, auto_min_results))
+    safe_sections = _parse_custom_sections(ranges) if safe_mode == "custom" else ()
     return artwork_results(
         safe_center,
         safe_span,
@@ -439,6 +475,7 @@ def get(
         allowed_sources,
         safe_auto_minimum,
         safe_mode,
+        safe_sections,
     )
 
 
@@ -450,6 +487,7 @@ def get(
     strictness: float = 1.0,
     offset: int = INITIAL_RESULT_LIMIT,
     mode: str = "standard",
+    ranges: str = "",
 ):
     sources = tuple(request.query_params.getlist("source"))
     allowed_sources = tuple(source for source in sources if source in {"magic", "met"})
@@ -462,6 +500,7 @@ def get(
     )
     safe_strictness = min(1.0, max(0.0, strictness))
     safe_offset = max(INITIAL_RESULT_LIMIT, offset)
+    safe_sections = _parse_custom_sections(ranges) if safe_mode == "custom" else ()
     return artwork_page(
         safe_center,
         safe_span,
@@ -469,6 +508,7 @@ def get(
         allowed_sources,
         safe_offset,
         safe_mode,
+        safe_sections,
     )
 
 

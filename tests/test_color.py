@@ -9,8 +9,10 @@ from colorslice.color import (
     noise_filtered_histogram,
     rgb_to_oklch,
     salient_slice_coverage,
+    salient_slices_coverage,
     slice_breadth,
     slice_coverage,
+    slice_presence,
 )
 
 
@@ -67,6 +69,17 @@ def test_slice_coverage_wraps_across_zero_degrees():
     histogram = tuple(0.5 if index in {0, 71} else 0.0 for index in range(72))
     assert slice_coverage(histogram, center=0.0, span=20.0) == 1.0
     assert slice_coverage(histogram, center=180.0, span=20.0) == 0.0
+
+
+def test_multiple_slices_measure_union_and_individual_presence():
+    histogram = [0.0] * 72
+    histogram[6] = 0.7
+    histogram[42] = 0.3
+    sections = ((32.5, 15.0), (212.5, 15.0))
+
+    assert salient_slices_coverage(tuple(histogram), sections) == 1.0
+    assert slice_presence(tuple(histogram), *sections[0]) == 0.7
+    assert slice_presence(tuple(histogram), *sections[1]) == 0.3
 
 
 def test_salient_coverage_ignores_tiny_isolated_hue_noise():

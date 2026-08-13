@@ -189,6 +189,36 @@ def salient_slice_coverage(
     return 1.0 if math.isclose(coverage, 1.0, abs_tol=1e-12) else coverage
 
 
+def salient_slices_coverage(
+    histogram: tuple[float, ...],
+    slices: tuple[tuple[float, float], ...],
+) -> float:
+    """Return denoised histogram mass inside the union of circular hue slices."""
+    if not histogram or not slices:
+        return 0.0
+
+    filtered = noise_filtered_histogram(histogram)
+    bin_width = 360.0 / len(filtered)
+    coverage = sum(
+        weight
+        for index, weight in enumerate(filtered)
+        if any(
+            circular_distance((index + 0.5) * bin_width, center) <= span / 2.0
+            for center, span in slices
+        )
+    )
+    return 1.0 if math.isclose(coverage, 1.0, abs_tol=1e-12) else coverage
+
+
+def slice_presence(
+    histogram: tuple[float, ...],
+    center: float,
+    span: float,
+) -> float:
+    """Return denoised chromatic weight present in one selected hue slice."""
+    return slice_coverage(noise_filtered_histogram(histogram), center, span)
+
+
 def slice_breadth(
     histogram: tuple[float, ...],
     center: float,
@@ -229,6 +259,19 @@ def slice_breadth(
     available_bins = max(2, round(span / bin_width) + 1)
     entropy_score = min(1.0, entropy / math.log(available_bins))
     return 0.65 * width_score + 0.35 * entropy_score
+
+
+def slices_breadth(
+    histogram: tuple[float, ...],
+    slices: tuple[tuple[float, float], ...],
+) -> float:
+    """Average palette breadth across every selected hue slice."""
+    if not slices:
+        return 0.0
+    return sum(
+        slice_breadth(histogram, center, span)
+        for center, span in slices
+    ) / len(slices)
 
 
 def rank_score(

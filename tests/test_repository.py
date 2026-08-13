@@ -1,3 +1,5 @@
+import pytest
+
 from colorslice.models import ArtworkRecord
 from colorslice.repository import ArtworkRepository
 
@@ -155,3 +157,87 @@ def test_repository_rejects_a_small_but_vivid_outside_accent(tmp_path, monkeypat
     )
 
     assert matches == []
+
+
+def test_repository_requires_color_in_every_custom_section(tmp_path, monkeypatch):
+    database_path = tmp_path / "multiple-sections.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    two_color = histogram_at(6, 42)
+    warm_only = histogram_at(6)
+    repository.upsert(record("two", "Two colors"), two_color, two_color, 32.5, 0.9)
+    repository.upsert(record("warm", "Warm only"), warm_only, warm_only, 32.5, 0.9)
+
+    matches = repository.search_sections(
+        sections=((32.5, 15.0), (212.5, 15.0)),
+        minimum_coverage=1.0,
+        sources=("met",),
+    )
+
+    assert [match.artwork.title for match in matches] == ["Two colors"]
+
+
+def test_repository_accepts_a_meaningful_accent_in_second_section(tmp_path, monkeypatch):
+    database_path = tmp_path / "section-accent.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    accent = [0.0] * 72
+    accent[6] = 0.98
+    accent[42] = 0.02
+    too_small = [0.0] * 72
+    too_small[6] = 0.99
+    too_small[42] = 0.01
+    repository.upsert(
+        record("accent", "Visible accent"),
+        tuple(accent),
+        tuple(accent),
+        32.5,
+        0.9,
+    )
+    repository.upsert(
+        record("trace", "Color trace"),
+        tuple(too_small),
+        tuple(too_small),
+        32.5,
+        0.9,
+    )
+
+    matches = repository.search_sections(
+        sections=((32.5, 15.0), (212.5, 15.0)),
+        minimum_coverage=1.0,
+        sources=("met",),
+    )
+
+    assert [match.artwork.title for match in matches] == ["Visible accent"]
+
+
+def test_repository_selects_fifth_best_custom_section_coverage(tmp_path, monkeypatch):
+    database_path = tmp_path / "strictest-sections.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+
+    for index, coverage in enumerate((1.0, 0.999, 0.995, 0.99, 0.98, 0.90)):
+        histogram = [0.0] * 72
+        histogram[6] = coverage - 0.03
+        histogram[42] = 0.03
+        histogram[25] = 1.0 - coverage
+        repository.upsert(
+            record(str(index), f"Coverage {coverage}"),
+            tuple(histogram),
+            tuple(histogram),
+            32.5,
+            0.9,
+        )
+
+    threshold, matches = repository.search_sections_strictest(
+        sections=((32.5, 15.0), (212.5, 15.0)),
+        sources=("met",),
+        minimum_results=5,
+    )
+
+    assert threshold == pytest.approx(0.98)
+    assert len(matches) == 5
+    assert all(match.coverage >= threshold for match in matches)

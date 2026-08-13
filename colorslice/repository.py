@@ -9,11 +9,19 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-from colorslice.color import rank_score, salient_slice_coverage, slice_breadth
+from colorslice.color import (
+    rank_score,
+    salient_slice_coverage,
+    salient_slices_coverage,
+    slice_breadth,
+    slice_presence,
+    slices_breadth,
+)
 from colorslice.models import Artwork, ArtworkMatch, ArtworkRecord, HUE_BIN_COUNT
 
 
 CATALOG_PROFILE_VERSION = 2
+MINIMUM_SECTION_PRESENCE = 0.02
 
 
 SQLITE_SCHEMA = """
@@ -396,6 +404,97 @@ class ArtworkRepository:
     ) -> list[ArtworkMatch]:
         candidates = self._fetch_candidates(center % 360.0, span, sources)
         return self._rank_candidates(candidates, center, span, minimum_coverage)[:limit]
+
+    def search_sections(
+        self,
+        *,
+        sections: tuple[tuple[float, float], ...],
+        minimum_coverage: float,
+        sources: tuple[str, ...],
+        limit: int = 24,
+    ) -> list[ArtworkMatch]:
+        ranked = self._rank_section_candidates(sections, sources)
+        return [
+            match for match in ranked if match.coverage >= minimum_coverage
+        ][:limit]
+
+    def search_sections_strictest(
+        self,
+        *,
+        sections: tuple[tuple[float, float], ...],
+        sources: tuple[str, ...],
+        minimum_results: int = 5,
+        maximum_coverage: float = 1.0,
+        limit: int = 24,
+    ) -> tuple[float, list[ArtworkMatch]]:
+        ranked = self._rank_section_candidates(sections, sources)
+        at_maximum = [
+            match for match in ranked if match.coverage >= maximum_coverage
+        ]
+        if len(at_maximum) >= minimum_results:
+            return maximum_coverage, at_maximum[:limit]
+
+        coverages = sorted(
+            (match.coverage for match in ranked),
+            reverse=True,
+        )
+        if len(coverages) >= minimum_results:
+            threshold = min(maximum_coverage, coverages[minimum_results - 1])
+        elif coverages:
+            threshold = min(maximum_coverage, coverages[-1])
+        else:
+            return maximum_coverage, []
+
+        matches = [match for match in ranked if match.coverage >= threshold]
+        return threshold, matches[:limit]
+
+    def _rank_section_candidates(
+        self,
+        sections: tuple[tuple[float, float], ...],
+        sources: tuple[str, ...],
+    ) -> list[ArtworkMatch]:
+        candidates_by_id: dict[str, Artwork] = {}
+        for center, span in sections:
+            for artwork in self._fetch_candidates(center, span, sources):
+                candidates_by_id[artwork.id] = artwork
+
+        scored: list[ArtworkMatch] = []
+        for artwork in candidates_by_id.values():
+            coverage = min(
+                salient_slices_coverage(artwork.hue_histogram, sections),
+                salient_slices_coverage(artwork.area_hue_histogram, sections),
+            )
+            if any(
+                slice_presence(artwork.hue_histogram, center, span)
+                < MINIMUM_SECTION_PRESENCE
+                for center, span in sections
+            ):
+                continue
+
+            breadth = slices_breadth(artwork.hue_histogram, sections)
+            score = (
+                0.65 * breadth
+                + 0.30 * coverage
+                + 0.05 * artwork.colorfulness
+            )
+            scored.append(
+                ArtworkMatch(
+                    artwork=artwork,
+                    coverage=coverage,
+                    breadth=breadth,
+                    score=score,
+                )
+            )
+
+        scored.sort(
+            key=lambda item: (
+                item.breadth,
+                item.coverage,
+                item.artwork.colorfulness,
+            ),
+            reverse=True,
+        )
+        return scored
 
     def _rank_candidates(
         self,
