@@ -273,3 +273,17 @@ def test_repository_backfills_missing_hue_masks(tmp_path, monkeypatch):
 
     assert (processed, remaining) == (1, 0)
     assert repository.exact_masks_ready
+
+
+def test_repository_deletes_an_artwork_source(tmp_path, monkeypatch):
+    database_path = tmp_path / "delete-source.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    histogram = histogram_at(6)
+    repository.upsert(record("museum", "Museum work"), histogram, histogram, 32.5, 0.8)
+
+    removed = repository.delete_source("met")
+
+    assert removed == 1
+    assert repository.count() == 0

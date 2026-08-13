@@ -1,6 +1,4 @@
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
-import itertools
 from typing import Any
 
 import httpx
@@ -8,10 +6,8 @@ import httpx
 from colorslice.models import ArtworkRecord, year_from_iso_date
 
 
-USER_AGENT = "Colorslice/0.1 (human-made art palette reference; contact: colorslice app)"
+USER_AGENT = "Colorslice/0.1 (MTG art palette matching tool; contact: colorslice app)"
 SCRYFALL_SEARCH_URL = "https://api.scryfall.com/cards/search"
-MET_SEARCH_URL = "https://collectionapi.metmuseum.org/public/collection/v1/search"
-MET_OBJECT_URL = "https://collectionapi.metmuseum.org/public/collection/v1/objects/{object_id}"
 
 
 def _string(value: object, fallback: str = "") -> str:
@@ -97,62 +93,6 @@ class ScryfallSource:
             analysis_url=art_crop,
             source_url=_string(card.get("scryfall_uri"), _string(card.get("uri"))),
             license_label="© Wizards of the Coast",
-        )
-
-
-class MetSource:
-    def __init__(self, client: httpx.Client) -> None:
-        self.client = client
-
-    def records(self, limit: int) -> Iterator[ArtworkRecord]:
-        if limit <= 0:
-            return
-        response = self.client.get(
-            MET_SEARCH_URL,
-            params={"hasImages": "true", "isHighlight": "true", "q": "painting"},
-        )
-        response.raise_for_status()
-        object_ids = response.json().get("objectIDs") or []
-        fetch_count = min(len(object_ids), max(limit * 3, limit))
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            payloads = executor.map(self._fetch_object, object_ids[:fetch_count])
-            records = (self._record_from_object(payload) for payload in payloads if payload)
-            yield from itertools.islice((record for record in records if record), limit)
-
-    def _fetch_object(self, object_id: int) -> dict[str, Any] | None:
-        response = self.client.get(MET_OBJECT_URL.format(object_id=object_id))
-        if response.status_code != 200:
-            return None
-        payload = response.json()
-        return payload if isinstance(payload, dict) else None
-
-    @staticmethod
-    def _record_from_object(payload: dict[str, Any]) -> ArtworkRecord | None:
-        if not payload.get("isPublicDomain"):
-            return None
-        primary_image = _string(payload.get("primaryImage"))
-        small_image = _string(payload.get("primaryImageSmall"))
-        if not primary_image and not small_image:
-            return None
-        object_id = payload.get("objectID")
-        if not isinstance(object_id, int):
-            return None
-        begin_date = payload.get("objectBeginDate")
-        year = begin_date if isinstance(begin_date, int) and begin_date != 0 else None
-        artist = _string(payload.get("artistDisplayName")).strip()
-        if not artist:
-            artist = _string(payload.get("culture")).strip() or "Unknown artist"
-        return ArtworkRecord(
-            source="met",
-            source_id=str(object_id),
-            title=_string(payload.get("title"), "Untitled"),
-            artist=artist,
-            year=year,
-            image_url=primary_image or small_image,
-            thumbnail_url=small_image or primary_image,
-            analysis_url=small_image or primary_image,
-            source_url=_string(payload.get("objectURL")),
-            license_label="Public Domain · The Met",
         )
 
 

@@ -1,14 +1,13 @@
 # Colorslice
 
-Colorslice finds human-made reference art whose chromatic content fits inside a
-selected slice of a perceptual color wheel. The initial sources are official
-Magic: The Gathering printings from Scryfall and public-domain museum works.
+Colorslice finds Magic: The Gathering artwork whose colors fit inside a
+selected region of a perceptual color wheel.
 
 ## Develop locally
 
 ```bash
 uv sync
-uv run python -m scripts.ingest --source all --limit 80
+uv run python -m scripts.ingest --limit 80
 uv run python main.py
 ```
 
@@ -18,8 +17,7 @@ The app runs at <http://127.0.0.1:5001>. Without `DATABASE_URL`, Colorslice uses
 ## Ingest artwork
 
 ```bash
-uv run python -m scripts.ingest --source magic --limit 200
-uv run python -m scripts.ingest --source met --limit 200
+uv run python -m scripts.ingest --limit 200
 uv run python -m scripts.ingest_balanced_magic --add 2000
 ```
 

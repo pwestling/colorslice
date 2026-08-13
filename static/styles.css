@@ -188,7 +188,8 @@ a { color: inherit; }
 .control-panel {
   position: relative;
   z-index: 3;
-  margin: 0 0 82px;
+  width: min(720px, 100%);
+  margin: 0 auto 82px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -198,7 +199,7 @@ a { color: inherit; }
 
 .controls-inner {
   display: grid;
-  grid-template-columns: 1fr 1.15fr;
+  grid-template-columns: 1fr;
 }
 
 .control-block {
@@ -206,7 +207,6 @@ a { color: inherit; }
   padding: 24px 30px;
 }
 
-.control-block + .control-block { border-left: 1px solid var(--line); }
 .control-label { color: var(--muted); }
 
 .segmented {
@@ -289,31 +289,6 @@ a { color: inherit; }
   font-family: "Instrument Serif", serif;
   font-size: 22px;
 }
-
-.source-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.source-toggle {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  cursor: pointer;
-}
-
-.source-toggle:has(input:checked) { background: var(--panel-selected); }
-.source-toggle input { width: 15px; height: 15px; accent-color: var(--selection); }
-.source-toggle,
-.source-name { color: var(--ink); }
-.source-name { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.source-count { color: var(--muted); font-size: 10px; }
 
 .results-section {
   min-height: 460px;
@@ -510,7 +485,6 @@ a { color: inherit; }
 @media (max-width: 1000px) {
   .hero { min-height: 580px; }
   .wheel-shell { width: min(540px, 68vw); }
-  .controls-inner { grid-template-columns: 1fr 1fr; }
   .art-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
@@ -523,7 +497,6 @@ a { color: inherit; }
   #hue-readout { font-size: 48px; }
   .control-panel { margin-bottom: 64px; }
   .controls-inner { display: block; }
-  .control-block + .control-block { border-top: 1px solid var(--line); border-left: 0; }
   .art-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 10px; }
   .art-card-copy h2 { font-size: 20px; }
   .source-badge { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

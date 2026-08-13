@@ -861,14 +861,6 @@ function initializePalette() {
   });
 
   addCustomSection.addEventListener("click", () => wheel.addSection());
-
-  form.querySelectorAll('input[name="source"]').forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      const selected = form.querySelectorAll('input[name="source"]:checked');
-      if (!selected.length) checkbox.checked = true;
-      loadResults({ immediate: true });
-    });
-  });
 }
 
 if (document.readyState === "loading") {

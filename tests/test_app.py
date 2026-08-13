@@ -32,7 +32,11 @@ def test_home_page_contains_palette_controls():
     assert 'id="color-wheel"' in response.text
     assert 'class="wheel-label' not in response.text
     assert "Magic" in response.text
-    assert "The Met" in response.text
+    assert "The Met" not in response.text
+    assert "COLLECTIONS" not in response.text
+    assert 'name="source"' not in response.text
+    assert "Find Magic: The Gathering artwork that matches your selected colors." in response.text
+    assert "human-made" not in response.text
     assert "PALETTE FIT" not in response.text
     assert 'name="strictness" value="1"' in response.text
     assert 'data-strictness="1.000"' in response.text
@@ -55,7 +59,7 @@ def test_home_page_contains_palette_controls():
 def test_artwork_endpoint_supports_high_match_thresholds():
     for strictness in ("0.99", "0.995", "0.998"):
         response = client.get(
-            f"/artworks?center=75&span=120&strictness={strictness}&source=magic"
+            f"/artworks?center=75&span=120&strictness={strictness}"
         )
 
         assert response.status_code == 200
@@ -64,10 +68,10 @@ def test_artwork_endpoint_supports_high_match_thresholds():
 
 def test_artwork_responses_are_shared_at_the_edge():
     response = client.get(
-        "/artworks?center=75&span=120&strictness=1&source=magic"
+        "/artworks?center=75&span=120&strictness=1"
     )
     page = client.get(
-        f"/artworks/page?center=75&span=120&strictness=1&source=magic&offset={INITIAL_RESULT_LIMIT}"
+        f"/artworks/page?center=75&span=120&strictness=1&offset={INITIAL_RESULT_LIMIT}"
     )
 
     assert response.headers["cache-control"] == "public, max-age=60"
@@ -84,9 +88,9 @@ def test_first_page_and_background_page_share_ranked_match_cache(monkeypatch):
         return []
 
     monkeypatch.setattr(repository, "search", search)
-    client.get("/artworks?center=90&span=120&strictness=1&source=magic")
+    client.get("/artworks?center=90&span=120&strictness=1")
     client.get(
-        f"/artworks/page?center=90&span=120&strictness=1&source=magic&offset={INITIAL_RESULT_LIMIT}"
+        f"/artworks/page?center=90&span=120&strictness=1&offset={INITIAL_RESULT_LIMIT}"
     )
 
     assert search_calls == 1
@@ -95,21 +99,23 @@ def test_first_page_and_background_page_share_ranked_match_cache(monkeypatch):
 def test_artwork_endpoint_requests_every_match(monkeypatch):
     requested_limits = []
     requested_spans = []
+    requested_sources = []
 
     def search(**parameters):
         requested_limits.append(parameters["limit"])
         requested_spans.append(parameters["span"])
+        requested_sources.append(parameters["sources"])
         return []
 
     monkeypatch.setattr(repository, "search", search)
     response = client.get(
-        "/artworks?center=75&span=120&strictness=0.99&source=magic"
+        "/artworks?center=75&span=120&strictness=0.99"
     )
     second_response = client.get(
-        "/artworks?center=75&span=90&strictness=0.99&source=magic"
+        "/artworks?center=75&span=90&strictness=0.99"
     )
     custom_response = client.get(
-        "/artworks?center=91.5&span=37&mode=custom&strictness=0.99&source=magic"
+        "/artworks?center=91.5&span=37&mode=custom&strictness=0.99&source=met"
     )
 
     assert response.status_code == 200
@@ -121,6 +127,7 @@ def test_artwork_endpoint_requests_every_match(monkeypatch):
         90.0 - WHEEL_SEGMENT_DEGREES,
         37.0,
     ]
+    assert requested_sources == [("magic",), ("magic",), ("magic",)]
 
 
 def test_custom_mode_supports_precise_narrow_and_wide_spans(monkeypatch):
@@ -132,10 +139,10 @@ def test_custom_mode_supports_precise_narrow_and_wide_spans(monkeypatch):
 
     monkeypatch.setattr(repository, "search", search)
     narrow = client.get(
-        "/artworks?center=45.5&span=1&mode=custom&strictness=1&source=magic"
+        "/artworks?center=45.5&span=1&mode=custom&strictness=1"
     )
     wide = client.get(
-        "/artworks?center=179.5&span=359&mode=custom&strictness=1&source=magic"
+        "/artworks?center=179.5&span=359&mode=custom&strictness=1"
     )
 
     assert narrow.status_code == 200
@@ -159,7 +166,7 @@ def test_custom_mode_searches_multiple_sections_as_one_union(monkeypatch):
     )
     response = client.get(
         "/artworks?center=75&span=120&mode=custom"
-        "&ranges=15:45,195:225&strictness=1&source=magic"
+        "&ranges=15:45,195:225&strictness=1"
     )
 
     assert response.status_code == 200

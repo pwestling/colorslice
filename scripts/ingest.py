@@ -5,13 +5,12 @@ import httpx
 
 from colorslice.color import analyze_image_bytes
 from colorslice.repository import ArtworkRepository
-from colorslice.sources import MetSource, ScryfallSource, build_http_client
+from colorslice.sources import ScryfallSource, build_http_client
 
 
 def parse_args():
-    parser = ArgumentParser(description="Ingest source art and compute OKLCH hue profiles.")
-    parser.add_argument("--source", choices=("all", "magic", "met"), default="all")
-    parser.add_argument("--limit", type=int, default=80, help="Maximum artworks per source")
+    parser = ArgumentParser(description="Ingest MTG art and compute OKLCH hue profiles.")
+    parser.add_argument("--limit", type=int, default=80, help="Maximum artworks")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     return parser.parse_args()
 
@@ -53,16 +52,10 @@ def main():
     repository.initialize()
     totals = {"stored": 0, "skipped": 0}
     with build_http_client() as client:
-        sources = []
-        if args.source in {"all", "magic"}:
-            sources.append(("magic", ScryfallSource(client).records(args.limit)))
-        if args.source in {"all", "met"}:
-            sources.append(("met", MetSource(client).records(args.limit)))
-
-        for name, records in sources:
-            stored, skipped = ingest_source(name, records, repository, client)
-            totals["stored"] += stored
-            totals["skipped"] += skipped
+        records = ScryfallSource(client).records(args.limit)
+        stored, skipped = ingest_source("magic", records, repository, client)
+        totals["stored"] += stored
+        totals["skipped"] += skipped
 
     counts = repository.source_counts()
     print(

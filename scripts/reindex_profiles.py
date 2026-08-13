@@ -15,7 +15,7 @@ def parse_args():
     parser = ArgumentParser(
         description="Recompute chroma- and area-weighted hue profiles."
     )
-    parser.add_argument("--source", choices=("all", "magic", "met"), default="all")
+    parser.add_argument("--source", choices=("all", "magic"), default="all")
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))

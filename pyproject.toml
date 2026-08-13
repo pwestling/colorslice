@@ -1,7 +1,7 @@
 [project]
 name = "colorslice"
 version = "0.1.0"
-description = "Find human-made artwork within a selected slice of the color wheel."
+description = "Find matching Magic: The Gathering artwork by color."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

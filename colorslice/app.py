@@ -12,7 +12,6 @@ from fasthtml.common import (
     H2,
     Img,
     Input,
-    Label,
     Link,
     Main,
     Meta,
@@ -54,13 +53,24 @@ if repository.is_postgres:
     if needs_catalog_seed or needs_profile_upgrade:
         repository.seed_from_sqlite(SEED_DATABASE)
         repository.set_catalog_profile_version(CATALOG_PROFILE_VERSION)
+repository.delete_source("met")
 
 app, rt = fast_app(
-    title="Colorslice — Art by palette",
+    title="Colorslice — MTG art by palette",
     hdrs=(
         Meta(
             name="description",
-            content="Browse human-made art by hue.",
+            content="Find Magic: The Gathering artwork that matches your selected colors.",
+        ),
+        Meta(property="og:title", content="Colorslice — MTG art by palette"),
+        Meta(
+            property="og:description",
+            content="Find Magic: The Gathering artwork that matches your selected colors.",
+        ),
+        Meta(name="twitter:title", content="Colorslice — MTG art by palette"),
+        Meta(
+            name="twitter:description",
+            content="Find Magic: The Gathering artwork that matches your selected colors.",
         ),
         Meta(name="theme-color", content="#f4f0e8"),
         Link(rel="preconnect", href="https://fonts.googleapis.com"),
@@ -90,10 +100,6 @@ async def cache_public_artwork_responses(request: Request, call_next):
 app.add_middleware(BaseHTTPMiddleware, dispatch=cache_public_artwork_responses)
 
 
-def _source_label(source: str) -> str:
-    return "Magic: The Gathering" if source == "magic" else "The Met"
-
-
 def _artwork_card(match: ArtworkMatch):
     artwork = match.artwork
     if artwork.year is None:
@@ -112,7 +118,7 @@ def _artwork_card(match: ArtworkMatch):
                 decoding="async",
             ),
             Div(
-                Span(_source_label(artwork.source), cls=f"source-badge source-{artwork.source}"),
+                Span("Magic: The Gathering", cls="source-badge source-magic"),
                 Span(f"{round(match.coverage * 100)}% in slice", cls="match-badge"),
                 cls="card-badges",
             ),
@@ -314,9 +320,7 @@ def artwork_page(
     )
 
 
-def _control_panel(counts: dict[str, int]):
-    magic_count = counts.get("magic", 0)
-    met_count = counts.get("met", 0)
+def _control_panel():
     return Form(
         Input(type="hidden", id="center-input", name="center", value="75"),
         Input(type="hidden", id="span-input", name="span", value="120"),
@@ -373,25 +377,6 @@ def _control_panel(counts: dict[str, int]):
                 ),
                 cls="control-block",
             ),
-            Div(
-                P("COLLECTIONS", cls="control-label"),
-                Div(
-                    Label(
-                        Input(type="checkbox", name="source", value="magic", checked=True),
-                        Span("Magic", cls="source-name"),
-                        Span(str(magic_count), cls="source-count"),
-                        cls="source-toggle",
-                    ),
-                    Label(
-                        Input(type="checkbox", name="source", value="met", checked=True),
-                        Span("The Met", cls="source-name"),
-                        Span(str(met_count), cls="source-count"),
-                        cls="source-toggle",
-                    ),
-                    cls="source-list",
-                ),
-                cls="control-block",
-            ),
             cls="controls-inner",
         ),
         id="palette-controls",
@@ -401,8 +386,7 @@ def _control_panel(counts: dict[str, int]):
 
 @rt("/")
 def get():
-    counts = repository.source_counts()
-    initial_results = artwork_results(75.0, 120.0, 1.0, ("magic", "met"))
+    initial_results = artwork_results(75.0, 120.0, 1.0, ("magic",))
     return (
         Main(
             Div(
@@ -432,7 +416,7 @@ def get():
                 ),
                 cls="hero",
             ),
-            _control_panel(counts),
+            _control_panel(),
             Div(
                 Span(cls="custom-loading-spinner", aria_hidden="true"),
                 Span(id="custom-loading-message"),
@@ -448,7 +432,7 @@ def get():
         ),
         Footer(
             P(
-                "Magic imagery © Wizards of the Coast. Museum rights labels are provided by source.",
+                "Magic imagery © Wizards of the Coast.",
                 cls="legal-copy",
             ),
             cls="site-footer",
@@ -466,8 +450,7 @@ def get(
     mode: str = "standard",
     ranges: str = "",
 ):
-    sources = tuple(request.query_params.getlist("source"))
-    allowed_sources = tuple(source for source in sources if source in {"magic", "met"})
+    allowed_sources = ("magic",)
     safe_center = center % 360.0
     safe_mode = "custom" if mode == "custom" else "standard"
     safe_span = (
@@ -499,8 +482,7 @@ def get(
     mode: str = "standard",
     ranges: str = "",
 ):
-    sources = tuple(request.query_params.getlist("source"))
-    allowed_sources = tuple(source for source in sources if source in {"magic", "met"})
+    allowed_sources = ("magic",)
     safe_center = center % 360.0
     safe_mode = "custom" if mode == "custom" else "standard"
     safe_span = (

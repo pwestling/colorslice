@@ -585,7 +585,7 @@ class ArtworkRepository:
         sources: tuple[str, ...],
         candidate_limit: int = 10_000,
     ) -> list[Artwork]:
-        source_values = sources or ("magic", "met")
+        source_values = sources or ("magic",)
         broad_span = min(180.0, span / 2.0 + 55.0)
         clauses = []
         parameters: list[Any] = []
@@ -622,7 +622,7 @@ class ArtworkRepository:
         if not self.is_postgres:
             raise RuntimeError("Exact mask search requires Postgres")
 
-        source_values = sources or ("magic", "met")
+        source_values = sources or ("magic",)
         source_clause = " OR ".join("source = %s" for _ in source_values)
         selected = _selected_mask(sections)
         outside = "".join("0" if bit == "1" else "1" for bit in selected)
@@ -669,7 +669,7 @@ class ArtworkRepository:
         if not self.is_postgres:
             raise RuntimeError("Hue-mask search requires Postgres")
 
-        source_values = sources or ("magic", "met")
+        source_values = sources or ("magic",)
         source_clause = " OR ".join("source = %s" for _ in source_values)
         presence_masks = [_selected_mask((section,)) for section in sections]
         presence_clauses = []
@@ -950,6 +950,17 @@ class ArtworkRepository:
         if row is None:
             return 0
         return int(dict(row)["count"])
+
+    def delete_source(self, source: str) -> int:
+        placeholder = "%s" if self.is_postgres else "?"
+        with self._connection() as connection:
+            result = connection.execute(
+                f"DELETE FROM artworks WHERE source = {placeholder}",
+                (source,),
+            )
+            removed = result.rowcount
+            connection.commit()
+        return max(0, removed)
 
     def source_counts(self) -> dict[str, int]:
         with self._connection() as connection:
