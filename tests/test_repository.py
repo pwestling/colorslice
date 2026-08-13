@@ -1,7 +1,7 @@
 import pytest
 
 from colorslice.models import ArtworkRecord
-from colorslice.repository import ArtworkRepository
+from colorslice.repository import ArtworkRepository, _histogram_mask, _selected_mask
 
 
 def histogram_at(*bins):
@@ -241,3 +241,35 @@ def test_repository_selects_fifth_best_custom_section_coverage(tmp_path, monkeyp
     assert threshold == pytest.approx(0.98)
     assert len(matches) == 5
     assert all(match.coverage >= threshold for match in matches)
+
+
+def test_hue_masks_follow_noise_filtering_and_selected_sections():
+    noisy = [0.0] * 72
+    noisy[6] = 0.9995
+    noisy[40] = 0.0005
+
+    assert _histogram_mask(tuple(noisy))[6] == "1"
+    assert _histogram_mask(tuple(noisy))[40] == "0"
+    selected = _selected_mask(((32.5, 15.0), (212.5, 15.0)))
+    assert selected[6] == "1"
+    assert selected[42] == "1"
+    assert selected[24] == "0"
+
+
+def test_repository_backfills_missing_hue_masks(tmp_path, monkeypatch):
+    database_path = tmp_path / "mask-backfill.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    histogram = histogram_at(6, 7)
+    repository.upsert(record("masked", "Masked work"), histogram, histogram, 32.5, 0.8)
+    with repository._connection() as connection:
+        connection.execute(
+            "UPDATE artworks SET hue_mask = NULL, area_hue_mask = NULL"
+        )
+        connection.commit()
+
+    processed, remaining = repository.backfill_missing_masks()
+
+    assert (processed, remaining) == (1, 0)
+    assert repository.exact_masks_ready

@@ -234,6 +234,16 @@ def _profile_values(value: object) -> tuple[float, ...]:
     return profile
 
 
+def _valid_import_token(request: Request) -> bool:
+    expected_token = os.environ.get("COLORSLICE_IMPORT_TOKEN")
+    supplied_token = request.headers.get("x-colorslice-import-token", "")
+    return bool(
+        expected_token
+        and supplied_token
+        and secrets.compare_digest(expected_token, supplied_token)
+    )
+
+
 def _import_entry(value: object):
     if not isinstance(value, dict):
         raise ValueError("Invalid import entry")
@@ -599,13 +609,7 @@ def get():
 
 @rt("/internal/artworks/import")
 async def post(request: Request):
-    expected_token = os.environ.get("COLORSLICE_IMPORT_TOKEN")
-    supplied_token = request.headers.get("x-colorslice-import-token", "")
-    if (
-        not expected_token
-        or not supplied_token
-        or not secrets.compare_digest(expected_token, supplied_token)
-    ):
+    if not _valid_import_token(request):
         return JSONResponse({"error": "Not found"}, status_code=404)
 
     try:
@@ -628,3 +632,11 @@ async def post(request: Request):
             "catalog_size": repository.count(("magic",)),
         }
     )
+
+
+@rt("/internal/artworks/masks")
+async def post(request: Request):
+    if not _valid_import_token(request):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    processed, remaining = repository.backfill_missing_masks()
+    return JSONResponse({"processed": processed, "remaining": remaining})

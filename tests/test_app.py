@@ -229,3 +229,21 @@ def test_internal_import_batches_new_artwork(monkeypatch):
         "catalog_size": 123,
     }
     assert len(captured) == 1
+
+
+def test_internal_mask_backfill_requires_token_and_processes_a_batch(monkeypatch):
+    monkeypatch.setenv("COLORSLICE_IMPORT_TOKEN", "expected")
+    monkeypatch.setattr(repository, "backfill_missing_masks", lambda: (1000, 42))
+
+    denied = client.post(
+        "/internal/artworks/masks",
+        headers={"x-colorslice-import-token": "incorrect"},
+    )
+    response = client.post(
+        "/internal/artworks/masks",
+        headers={"x-colorslice-import-token": "expected"},
+    )
+
+    assert denied.status_code == 404
+    assert response.status_code == 200
+    assert response.json() == {"processed": 1000, "remaining": 42}

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from contextlib import contextmanager
 import json
 import os
@@ -10,6 +11,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 from colorslice.color import (
+    circular_distance,
+    noise_filtered_histogram,
     rank_score,
     salient_slice_coverage,
     salient_slices_coverage,
@@ -22,6 +25,7 @@ from colorslice.models import Artwork, ArtworkMatch, ArtworkRecord, HUE_BIN_COUN
 
 CATALOG_PROFILE_VERSION = 2
 MINIMUM_SECTION_PRESENCE = 0.02
+ZERO_HUE_MASK = "0" * HUE_BIN_COUNT
 
 
 SQLITE_SCHEMA = """
@@ -40,6 +44,8 @@ CREATE TABLE IF NOT EXISTS artworks (
     area_hue_histogram TEXT NOT NULL,
     dominant_hue REAL NOT NULL,
     colorfulness REAL NOT NULL,
+    hue_mask TEXT,
+    area_hue_mask TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(source, source_id)
 );
@@ -67,6 +73,8 @@ CREATE TABLE IF NOT EXISTS artworks (
     area_hue_histogram JSONB NOT NULL,
     dominant_hue DOUBLE PRECISION NOT NULL,
     colorfulness DOUBLE PRECISION NOT NULL,
+    hue_mask BIT(72),
+    area_hue_mask BIT(72),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(source, source_id)
 );
@@ -84,18 +92,22 @@ UPDATE artworks
 SET area_hue_histogram = hue_histogram
 WHERE area_hue_histogram IS NULL;
 ALTER TABLE artworks ALTER COLUMN area_hue_histogram SET NOT NULL;
+ALTER TABLE artworks ADD COLUMN IF NOT EXISTS hue_mask BIT(72);
+ALTER TABLE artworks ADD COLUMN IF NOT EXISTS area_hue_mask BIT(72);
 """
 
 POSTGRES_UPSERT = """
 INSERT INTO artworks (
     id, source, source_id, title, artist, year, image_url,
     thumbnail_url, source_url, license_label, hue_histogram,
-    area_hue_histogram, dominant_hue, colorfulness
+    area_hue_histogram, dominant_hue, colorfulness, hue_mask,
+    area_hue_mask
 ) VALUES (
     %(id)s, %(source)s, %(source_id)s, %(title)s, %(artist)s, %(year)s,
     %(image_url)s, %(thumbnail_url)s, %(source_url)s, %(license_label)s,
     %(hue_histogram)s::jsonb, %(area_hue_histogram)s::jsonb,
-    %(dominant_hue)s, %(colorfulness)s
+    %(dominant_hue)s, %(colorfulness)s, %(hue_mask)s::bit(72),
+    %(area_hue_mask)s::bit(72)
 )
 ON CONFLICT (id) DO UPDATE SET
     title = EXCLUDED.title,
@@ -108,8 +120,28 @@ ON CONFLICT (id) DO UPDATE SET
     hue_histogram = EXCLUDED.hue_histogram,
     area_hue_histogram = EXCLUDED.area_hue_histogram,
     dominant_hue = EXCLUDED.dominant_hue,
-    colorfulness = EXCLUDED.colorfulness
+    colorfulness = EXCLUDED.colorfulness,
+    hue_mask = EXCLUDED.hue_mask,
+    area_hue_mask = EXCLUDED.area_hue_mask
 """
+
+
+def _histogram_mask(histogram: tuple[float, ...]) -> str:
+    filtered = noise_filtered_histogram(histogram)
+    return "".join("1" if weight > 0.0 else "0" for weight in filtered)
+
+
+def _selected_mask(sections: tuple[tuple[float, float], ...]) -> str:
+    bin_width = 360.0 / HUE_BIN_COUNT
+    return "".join(
+        "1"
+        if any(
+            circular_distance((index + 0.5) * bin_width, center) <= span / 2.0
+            for center, span in sections
+        )
+        else "0"
+        for index in range(HUE_BIN_COUNT)
+    )
 
 
 def sqlite_artwork_count(path: Path) -> int:
@@ -133,6 +165,7 @@ class ArtworkRepository:
             self.database_url
             and self.database_url.startswith(("postgres://", "postgresql://"))
         )
+        self.exact_masks_ready = False
 
     @contextmanager
     def _connection(self):
@@ -167,6 +200,12 @@ class ArtworkRepository:
                     connection.execute(
                         "ALTER TABLE artworks ADD COLUMN area_hue_histogram TEXT"
                     )
+                if "hue_mask" not in columns:
+                    connection.execute("ALTER TABLE artworks ADD COLUMN hue_mask TEXT")
+                if "area_hue_mask" not in columns:
+                    connection.execute(
+                        "ALTER TABLE artworks ADD COLUMN area_hue_mask TEXT"
+                    )
                 connection.execute(
                     """
                     UPDATE artworks
@@ -175,6 +214,17 @@ class ArtworkRepository:
                     """
                 )
             connection.commit()
+            missing_masks = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM artworks
+                WHERE hue_mask IS NULL OR area_hue_mask IS NULL
+                """
+            ).fetchone()
+            self.exact_masks_ready = (
+                missing_masks is not None
+                and int(dict(missing_masks)["count"]) == 0
+            )
 
     def catalog_profile_version(self) -> int:
         with self._connection() as connection:
@@ -205,6 +255,16 @@ class ArtworkRepository:
         with sqlite3.connect(source_path) as source:
             source.row_factory = sqlite3.Row
             rows = [dict(row) for row in source.execute("SELECT * FROM artworks")]
+
+        for row in rows:
+            hue_histogram = tuple(
+                float(value) for value in json.loads(row["hue_histogram"])
+            )
+            area_hue_histogram = tuple(
+                float(value) for value in json.loads(row["area_hue_histogram"])
+            )
+            row["hue_mask"] = _histogram_mask(hue_histogram)
+            row["area_hue_mask"] = _histogram_mask(area_hue_histogram)
 
         with self._connection() as destination:
             with destination.cursor() as cursor:
@@ -272,6 +332,8 @@ class ArtworkRepository:
                     json.dumps(area_hue_histogram),
                     dominant_hue,
                     colorfulness,
+                    _histogram_mask(hue_histogram),
+                    _histogram_mask(area_hue_histogram),
                 )
             )
         if not values:
@@ -283,10 +345,11 @@ class ArtworkRepository:
                     INSERT INTO artworks (
                         id, source, source_id, title, artist, year, image_url,
                         thumbnail_url, source_url, license_label, hue_histogram,
-                        area_hue_histogram, dominant_hue, colorfulness
+                        area_hue_histogram, dominant_hue, colorfulness,
+                        hue_mask, area_hue_mask
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s::jsonb, %s::jsonb, %s, %s
+                        %s::jsonb, %s::jsonb, %s, %s, %s::bit(72), %s::bit(72)
                     )
                     ON CONFLICT (id) DO UPDATE SET
                         title = EXCLUDED.title,
@@ -299,15 +362,18 @@ class ArtworkRepository:
                         hue_histogram = EXCLUDED.hue_histogram,
                         area_hue_histogram = EXCLUDED.area_hue_histogram,
                         dominant_hue = EXCLUDED.dominant_hue,
-                        colorfulness = EXCLUDED.colorfulness
+                        colorfulness = EXCLUDED.colorfulness,
+                        hue_mask = EXCLUDED.hue_mask,
+                        area_hue_mask = EXCLUDED.area_hue_mask
                 """
             else:
                 query = """
                     INSERT INTO artworks (
                         id, source, source_id, title, artist, year, image_url,
                         thumbnail_url, source_url, license_label, hue_histogram,
-                        area_hue_histogram, dominant_hue, colorfulness
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        area_hue_histogram, dominant_hue, colorfulness,
+                        hue_mask, area_hue_mask
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         title = excluded.title,
                         artist = excluded.artist,
@@ -319,7 +385,9 @@ class ArtworkRepository:
                         hue_histogram = excluded.hue_histogram,
                         area_hue_histogram = excluded.area_hue_histogram,
                         dominant_hue = excluded.dominant_hue,
-                        colorfulness = excluded.colorfulness
+                        colorfulness = excluded.colorfulness,
+                        hue_mask = excluded.hue_mask,
+                        area_hue_mask = excluded.area_hue_mask
                 """
             if self.is_postgres:
                 with connection.cursor() as cursor:
@@ -380,6 +448,71 @@ class ArtworkRepository:
             or record.image_url in existing_image_urls
         }
 
+    def backfill_missing_masks(self, batch_size: int = 1_000) -> tuple[int, int]:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        placeholder = "%s" if self.is_postgres else "?"
+        with self._connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, hue_histogram, area_hue_histogram
+                FROM artworks
+                WHERE hue_mask IS NULL OR area_hue_mask IS NULL
+                ORDER BY id
+                LIMIT {placeholder}
+                """,
+                (batch_size,),
+            ).fetchall()
+            updates = []
+            for row in rows:
+                values = dict(row)
+                raw_hue = values["hue_histogram"]
+                raw_area = values["area_hue_histogram"]
+                hue_values = json.loads(raw_hue) if isinstance(raw_hue, str) else raw_hue
+                area_values = (
+                    json.loads(raw_area) if isinstance(raw_area, str) else raw_area
+                )
+                updates.append(
+                    (
+                        _histogram_mask(tuple(float(value) for value in hue_values)),
+                        _histogram_mask(tuple(float(value) for value in area_values)),
+                        str(values["id"]),
+                    )
+                )
+
+            if updates:
+                if self.is_postgres:
+                    with connection.cursor() as cursor:
+                        cursor.executemany(
+                            """
+                            UPDATE artworks
+                            SET hue_mask = %s::bit(72), area_hue_mask = %s::bit(72)
+                            WHERE id = %s
+                            """,
+                            updates,
+                        )
+                else:
+                    connection.executemany(
+                        """
+                        UPDATE artworks
+                        SET hue_mask = ?, area_hue_mask = ?
+                        WHERE id = ?
+                        """,
+                        updates,
+                    )
+            missing = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM artworks
+                WHERE hue_mask IS NULL OR area_hue_mask IS NULL
+                """
+            ).fetchone()
+            connection.commit()
+
+        remaining = int(dict(missing)["count"]) if missing is not None else 0
+        self.exact_masks_ready = remaining == 0
+        return len(updates), remaining
+
     def update_profiles(
         self,
         updates: list[
@@ -404,6 +537,8 @@ class ArtworkRepository:
                     json.dumps(area_histogram),
                     dominant_hue,
                     colorfulness,
+                    _histogram_mask(histogram),
+                    _histogram_mask(area_histogram),
                     artwork_id,
                 )
             )
@@ -419,7 +554,9 @@ class ArtworkRepository:
                         SET hue_histogram = %s::jsonb,
                             area_hue_histogram = %s::jsonb,
                             dominant_hue = %s,
-                            colorfulness = %s
+                            colorfulness = %s,
+                            hue_mask = %s::bit(72),
+                            area_hue_mask = %s::bit(72)
                         WHERE id = %s
                         """,
                         values,
@@ -431,7 +568,9 @@ class ArtworkRepository:
                     SET hue_histogram = ?,
                         area_hue_histogram = ?,
                         dominant_hue = ?,
-                        colorfulness = ?
+                        colorfulness = ?,
+                        hue_mask = ?,
+                        area_hue_mask = ?
                     WHERE id = ?
                     """,
                     values,
@@ -473,6 +612,52 @@ class ArtworkRepository:
             rows = connection.execute(query, parameters).fetchall()
         return [Artwork.from_mapping(dict(row)) for row in rows]
 
+    def _fetch_exact_candidates(
+        self,
+        sections: tuple[tuple[float, float], ...],
+        sources: tuple[str, ...],
+        candidate_limit: int = 50_000,
+    ) -> list[Artwork]:
+        if not self.is_postgres:
+            raise RuntimeError("Exact mask search requires Postgres")
+
+        source_values = sources or ("magic", "met")
+        source_clause = " OR ".join("source = %s" for _ in source_values)
+        selected = _selected_mask(sections)
+        outside = "".join("0" if bit == "1" else "1" for bit in selected)
+        presence_masks = [_selected_mask((section,)) for section in sections]
+        presence_clauses = "\n".join(
+            "AND (hue_mask & %s::bit(72)) <> %s::bit(72)"
+            for _ in presence_masks
+        )
+        query = f"""
+            SELECT id, source, source_id, title, artist, year, image_url,
+                   thumbnail_url, source_url, license_label, hue_histogram,
+                   area_hue_histogram, dominant_hue, colorfulness
+            FROM artworks
+            WHERE ({source_clause})
+              AND hue_mask IS NOT NULL
+              AND area_hue_mask IS NOT NULL
+              AND (hue_mask & %s::bit(72)) = %s::bit(72)
+              AND (area_hue_mask & %s::bit(72)) = %s::bit(72)
+              {presence_clauses}
+            ORDER BY colorfulness DESC
+            LIMIT %s
+        """
+        parameters: list[Any] = [
+            *source_values,
+            outside,
+            ZERO_HUE_MASK,
+            outside,
+            ZERO_HUE_MASK,
+        ]
+        for presence_mask in presence_masks:
+            parameters.extend((presence_mask, ZERO_HUE_MASK))
+        parameters.append(candidate_limit)
+        with self._connection() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [Artwork.from_mapping(dict(row)) for row in rows]
+
     def search(
         self,
         *,
@@ -482,7 +667,14 @@ class ArtworkRepository:
         sources: tuple[str, ...],
         limit: int = 24,
     ) -> list[ArtworkMatch]:
-        candidates = self._fetch_candidates(center % 360.0, span, sources)
+        normalized_center = center % 360.0
+        if minimum_coverage >= 1.0 and self.exact_masks_ready and self.is_postgres:
+            candidates = self._fetch_exact_candidates(
+                ((normalized_center, span),),
+                sources,
+            )
+        else:
+            candidates = self._fetch_candidates(normalized_center, span, sources)
         return self._rank_candidates(candidates, center, span, minimum_coverage)[:limit]
 
     def search_sections(
@@ -493,7 +685,13 @@ class ArtworkRepository:
         sources: tuple[str, ...],
         limit: int = 24,
     ) -> list[ArtworkMatch]:
-        ranked = self._rank_section_candidates(sections, sources)
+        if minimum_coverage >= 1.0 and self.exact_masks_ready and self.is_postgres:
+            ranked = self._rank_section_artworks(
+                self._fetch_exact_candidates(sections, sources),
+                sections,
+            )
+        else:
+            ranked = self._rank_section_candidates(sections, sources)
         return [
             match for match in ranked if match.coverage >= minimum_coverage
         ][:limit]
@@ -507,6 +705,14 @@ class ArtworkRepository:
         maximum_coverage: float = 1.0,
         limit: int = 24,
     ) -> tuple[float, list[ArtworkMatch]]:
+        if maximum_coverage >= 1.0 and self.exact_masks_ready and self.is_postgres:
+            exact_ranked = self._rank_section_artworks(
+                self._fetch_exact_candidates(sections, sources),
+                sections,
+            )
+            if len(exact_ranked) >= minimum_results:
+                return 1.0, exact_ranked[:limit]
+
         ranked = self._rank_section_candidates(sections, sources)
         at_maximum = [
             match for match in ranked if match.coverage >= maximum_coverage
@@ -538,8 +744,16 @@ class ArtworkRepository:
             for artwork in self._fetch_candidates(center, span, sources):
                 candidates_by_id[artwork.id] = artwork
 
+        return self._rank_section_artworks(candidates_by_id.values(), sections)
+
+    def _rank_section_artworks(
+        self,
+        artworks: Iterable[Artwork],
+        sections: tuple[tuple[float, float], ...],
+    ) -> list[ArtworkMatch]:
+
         scored: list[ArtworkMatch] = []
-        for artwork in candidates_by_id.values():
+        for artwork in artworks:
             coverage = min(
                 salient_slices_coverage(artwork.hue_histogram, sections),
                 salient_slices_coverage(artwork.area_hue_histogram, sections),
