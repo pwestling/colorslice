@@ -41,6 +41,10 @@ def test_home_page_contains_palette_controls():
     assert 'name="mode" value="standard"' in response.text
     assert 'name="ranges" value=""' in response.text
     assert 'id="custom-controls"' in response.text
+    assert 'id="custom-loading-status"' in response.text
+    assert 'id="custom-loading-message"' in response.text
+    assert 'role="status"' in response.text
+    assert 'hidden id="custom-loading-status"' in response.text
     assert "+ Add section" in response.text
     assert 'data-custom-edge=' not in response.text
     assert 'id="custom-section-list"' not in response.text
@@ -173,4 +177,3 @@ def test_health_endpoint_reports_catalog_size():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["database"] == "sqlite"
-

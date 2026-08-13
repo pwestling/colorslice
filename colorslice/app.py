@@ -433,6 +433,16 @@ def get():
                 cls="hero",
             ),
             _control_panel(counts),
+            Div(
+                Span(cls="custom-loading-spinner", aria_hidden="true"),
+                Span(id="custom-loading-message"),
+                id="custom-loading-status",
+                cls="custom-loading-status",
+                role="status",
+                aria_live="polite",
+                aria_atomic="true",
+                hidden=True,
+            ),
             Div(*initial_results, id="art-results", cls="results-section", aria_live="polite"),
             cls="page-main",
         ),
@@ -521,4 +531,3 @@ def get():
             "database": "postgres" if repository.is_postgres else "sqlite",
         }
     )
-

@@ -675,11 +675,14 @@ function initializePalette() {
   const hueRangeName = document.querySelector("#hue-range-name");
   const wheelActionLabel = document.querySelector(".wheel-action-label");
   const wheelCenter = document.querySelector("#wheel-center");
+  const wheelShell = document.querySelector(".wheel-shell");
   const customControls = document.querySelector("#custom-controls");
   const customAngle = document.querySelector("#custom-angle");
   const customPercent = document.querySelector("#custom-percent");
   const customSectionCount = document.querySelector("#custom-section-count");
   const addCustomSection = document.querySelector("#add-custom-section");
+  const customLoadingStatus = document.querySelector("#custom-loading-status");
+  const customLoadingMessage = document.querySelector("#custom-loading-message");
   let requestTimer;
   let activeRequest;
   let resultGeneration = 0;
@@ -790,22 +793,33 @@ function initializePalette() {
     window.clearTimeout(requestTimer);
     const run = async () => {
       activeRequest?.abort();
-      activeRequest = new AbortController();
+      const request = new AbortController();
+      activeRequest = request;
       resultGeneration += 1;
       const generation = resultGeneration;
       const results = document.querySelector("#art-results");
       results.classList.add("is-loading");
+      results.setAttribute("aria-busy", "true");
       const params = new URLSearchParams(new FormData(form));
+      const customSearch = params.get("mode") === "custom";
+      customLoadingStatus.hidden = !customSearch;
+      customLoadingMessage.textContent = customSearch ? "Finding matches…" : "";
+      wheelShell.classList.toggle("is-searching", customSearch);
       const url = `/artworks?${params.toString()}`;
       try {
-        results.innerHTML = await fetchResults(url, activeRequest.signal);
-        results.classList.remove("is-loading");
-        void loadRemainingResults(params, generation, activeRequest.signal);
-        void prefetchAdjacentResults(params, activeRequest.signal);
+        results.innerHTML = await fetchResults(url, request.signal);
+        void loadRemainingResults(params, generation, request.signal);
+        void prefetchAdjacentResults(params, request.signal);
       } catch (error) {
         if (error.name !== "AbortError") console.error(error);
       } finally {
-        if (!activeRequest.signal.aborted) results.classList.remove("is-loading");
+        if (activeRequest === request) {
+          results.classList.remove("is-loading");
+          results.removeAttribute("aria-busy");
+          customLoadingStatus.hidden = true;
+          customLoadingMessage.textContent = "";
+          wheelShell.classList.remove("is-searching");
+        }
       }
     };
     requestTimer = window.setTimeout(run, immediate ? 0 : 180);
