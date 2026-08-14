@@ -159,12 +159,9 @@ a { color: inherit; }
   background: transparent;
   border: 0;
   border-radius: 50%;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
 }
-
-#wheel-center:active { cursor: grabbing; }
-#wheel-center.custom-mode { cursor: default; }
 
 .wheel-action-label {
   font-size: 9px;

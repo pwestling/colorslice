@@ -1,9 +1,8 @@
 const TAU = Math.PI * 2;
-const WHEEL_SEGMENT_COUNT = 24;
-const WHEEL_SEGMENT_SIZE = 360 / WHEEL_SEGMENT_COUNT;
-const WHEEL_SEGMENT_GAP = 1.15;
 const WHEEL_CONTINUOUS_STEP = 1;
 const WHEEL_CONTINUOUS_OVERLAP = 0.12;
+const FIXED_MATCH_EDGE_INSET = 7.5;
+const ADJACENT_PREFETCH_DEGREES = 1;
 const WHEEL_DARK_LIGHTNESS = 0.35;
 const WHEEL_LIGHT_LIGHTNESS = 0.90;
 const WHEEL_DARK_END = 0.10;
@@ -94,11 +93,6 @@ function wheelRamp(hue) {
   ];
 }
 
-const WHEEL_SEGMENT_RAMPS = Array.from(
-  { length: WHEEL_SEGMENT_COUNT },
-  (_, segment) => wheelRamp((segment + 0.5) * WHEEL_SEGMENT_SIZE),
-);
-
 function hueName(hue) {
   const names = [
     [15, "red"], [45, "vermilion"], [75, "orange"], [105, "amber"],
@@ -108,10 +102,6 @@ function hueName(hue) {
   const normalized = ((hue % 360) + 360) % 360;
   return names.find(([boundary]) => normalized < boundary)?.[1] || "red";
 }
-
-const normalizedSegment = (segment) => (
-  (segment % WHEEL_SEGMENT_COUNT) + WHEEL_SEGMENT_COUNT
-) % WHEEL_SEGMENT_COUNT;
 
 const normalizeHue = (hue) => ((hue % 360) + 360) % 360;
 
@@ -157,9 +147,7 @@ function sliceStateFromUrl() {
   if (!Number.isFinite(center) || ![90, 120].includes(span)) return null;
   return {
     mode: "standard",
-    center: normalizeHue(
-      Math.round(center / WHEEL_SEGMENT_SIZE) * WHEEL_SEGMENT_SIZE,
-    ),
+    center: normalizeHue(Math.round(center)),
     span,
   };
 }
@@ -197,6 +185,7 @@ class ColorWheel {
     this.dragOriginHue = 0;
     this.dragOriginStart = 0;
     this.dragOriginEnd = 0;
+    this.dragOriginCenter = 0;
     this.continuousFills = null;
     this.onChange = onChange;
     this.dragging = false;
@@ -213,22 +202,23 @@ class ColorWheel {
     const start = (event) => {
       const pointer = this.pointerDetails(event);
       if (
-        this.mode === "custom"
-        && (event.currentTarget === wheelCenter || pointer.radiusRatio < 0.48)
+        event.currentTarget === wheelCenter
+        || pointer.radiusRatio < 0.48
       ) return;
+      const hit = this.selectionHit(pointer.hue);
+      if (!hit) return;
+      this.activeBoundary = hit.edge;
+      this.dragMode = this.mode === "custom" && hit.edge ? "boundary" : "move";
+      this.dragOriginHue = Math.round(pointer.hue);
+      this.dragOriginCenter = this.centerHue;
       if (this.mode === "custom") {
-        const hit = this.customHit(pointer.hue);
-        if (!hit) return;
         this.activeSectionId = hit.section.id;
-        this.activeBoundary = hit.edge;
-        this.dragMode = hit.edge ? "boundary" : "move";
-        this.dragOriginHue = Math.round(pointer.hue);
         this.dragOriginStart = hit.section.start;
         this.dragOriginEnd = hit.section.end;
       }
       this.dragging = true;
       this.canvas.setPointerCapture(event.pointerId);
-      if (this.mode === "standard" || this.dragMode === "boundary") {
+      if (this.dragMode === "boundary") {
         this.updateFromPointer(event);
       } else {
         this.draw();
@@ -271,10 +261,7 @@ class ColorWheel {
         this.adjustBoundary(this.activeBoundary || "end", direction);
         return;
       }
-      this.centerHue = normalizeHue(
-        (Math.round(this.centerHue / WHEEL_SEGMENT_SIZE) + direction)
-        * WHEEL_SEGMENT_SIZE,
-      );
+      this.centerHue = normalizeHue(Math.round(this.centerHue) + direction);
       this.draw();
       this.onChange(this.state(), true);
     });
@@ -334,8 +321,18 @@ class ColorWheel {
     );
   }
 
-  customHit(hue) {
-    const boundaryHits = this.customSections.flatMap((section) => [
+  selectionSections() {
+    if (this.mode === "custom") return this.customSections;
+    return [{
+      id: 0,
+      start: normalizeHue(this.centerHue - this.span / 2),
+      end: normalizeHue(this.centerHue + this.span / 2),
+    }];
+  }
+
+  selectionHit(hue) {
+    const sections = this.selectionSections();
+    const boundaryHits = sections.flatMap((section) => [
       { section, edge: "start", distance: circularDistance(hue, section.start) },
       { section, edge: "end", distance: circularDistance(hue, section.end) },
     ]).filter((hit) => hit.distance <= 10);
@@ -346,20 +343,16 @@ class ColorWheel {
     ));
     if (boundaryHits.length) return boundaryHits[0];
 
-    const activeSection = this.activeSection();
-    if (this.hueInsideSection(hue, activeSection)) {
+    const activeSection = this.mode === "custom"
+      ? this.activeSection()
+      : sections[0];
+    if (activeSection && this.hueInsideSection(hue, activeSection)) {
       return { section: activeSection, edge: null };
     }
-    const section = this.customSections.find(
+    const section = sections.find(
       (candidate) => this.hueInsideSection(hue, candidate),
     );
     return section ? { section, edge: null } : null;
-  }
-
-  selectedSegments() {
-    const count = Math.round(this.span / WHEEL_SEGMENT_SIZE);
-    const start = Math.round((this.centerHue - this.span / 2) / WHEEL_SEGMENT_SIZE);
-    return Array.from({ length: count }, (_, index) => normalizedSegment(start + index));
   }
 
   pointerDetails(event) {
@@ -385,9 +378,8 @@ class ColorWheel {
         this.setCustomBoundary(this.activeBoundary, Math.round(hue));
       }
     } else {
-      this.centerHue = normalizeHue(
-        Math.round(hue / WHEEL_SEGMENT_SIZE) * WHEEL_SEGMENT_SIZE,
-      );
+      const delta = Math.round(hue) - this.dragOriginHue;
+      this.centerHue = normalizeHue(this.dragOriginCenter + delta);
     }
     this.draw();
     this.onChange(this.state(), false);
@@ -537,9 +529,7 @@ class ColorWheel {
   setStandardSpan(span) {
     this.mode = "standard";
     this.span = span;
-    this.centerHue = normalizeHue(
-      Math.round(this.centerHue / WHEEL_SEGMENT_SIZE) * WHEEL_SEGMENT_SIZE,
-    );
+    this.centerHue = normalizeHue(Math.round(this.centerHue));
     this.activeBoundary = null;
     this.draw();
   }
@@ -556,14 +546,6 @@ class ColorWheel {
     );
     ramp.forEach(({ position, color }) => gradient.addColorStop(position, color));
     return gradient;
-  }
-
-  segmentGradient(segment, innerRadius, outerRadius) {
-    return this.gradientFromRamp(
-      WHEEL_SEGMENT_RAMPS[segment],
-      innerRadius,
-      outerRadius,
-    );
   }
 
   continuousGradients(innerRadius, outerRadius) {
@@ -606,37 +588,6 @@ class ColorWheel {
     }
   }
 
-  drawSegmentedWheel(innerRadius, outerRadius, ink) {
-    const segmentFills = Array.from(
-      { length: WHEEL_SEGMENT_COUNT },
-      (_, segment) => this.segmentGradient(segment, innerRadius, outerRadius),
-    );
-    for (let segment = 0; segment < WHEEL_SEGMENT_COUNT; segment += 1) {
-      const startHue = segment * WHEEL_SEGMENT_SIZE + WHEEL_SEGMENT_GAP / 2;
-      const endHue = (segment + 1) * WHEEL_SEGMENT_SIZE - WHEEL_SEGMENT_GAP / 2;
-      this.drawArcSegment(
-        startHue,
-        endHue,
-        innerRadius,
-        outerRadius,
-        segmentFills[segment],
-      );
-    }
-    this.selectedSegments().forEach((segment) => {
-      const startHue = segment * WHEEL_SEGMENT_SIZE + WHEEL_SEGMENT_GAP / 2;
-      const endHue = (segment + 1) * WHEEL_SEGMENT_SIZE - WHEEL_SEGMENT_GAP / 2;
-      this.drawArcSegment(
-        startHue,
-        endHue,
-        innerRadius - 3,
-        outerRadius + 1,
-        segmentFills[segment],
-        ink,
-        4,
-      );
-    });
-  }
-
   drawContinuousWheel(innerRadius, outerRadius, ink) {
     const fills = this.continuousGradients(innerRadius, outerRadius);
     const overlap = WHEEL_CONTINUOUS_OVERLAP;
@@ -650,7 +601,7 @@ class ColorWheel {
       );
     }
     const center = this.canvas.width / 2;
-    const sections = [...this.customSections].sort((first, second) => (
+    const sections = [...this.selectionSections()].sort((first, second) => (
       Number(first.id === this.activeSectionId)
       - Number(second.id === this.activeSectionId)
     ));
@@ -669,7 +620,9 @@ class ColorWheel {
       const start = (section.start - 90) * Math.PI / 180;
       const end = (section.start + span - 90) * Math.PI / 180;
       this.context.strokeStyle = ink;
-      this.context.lineWidth = section.id === this.activeSectionId ? 5 : 2;
+      this.context.lineWidth = (
+        this.mode === "standard" || section.id === this.activeSectionId
+      ) ? 5 : 2;
       this.context.beginPath();
       this.context.arc(center, center, outerRadius + 1, start, end);
       this.context.stroke();
@@ -686,11 +639,7 @@ class ColorWheel {
     const paper = themeColor("--paper");
     const line = themeColor("--line");
     context.clearRect(0, 0, size, size);
-    if (this.mode === "custom") {
-      this.drawContinuousWheel(innerRadius, outerRadius, ink);
-    } else {
-      this.drawSegmentedWheel(innerRadius, outerRadius, ink);
-    }
+    this.drawContinuousWheel(innerRadius, outerRadius, ink);
 
     context.save();
     context.shadowColor = themeColor("--wheel-shadow");
@@ -701,15 +650,16 @@ class ColorWheel {
     context.fill();
     context.restore();
 
-    const boundaries = this.mode === "custom"
-      ? this.customSections.flatMap((section) => [
-        { hue: section.start, active: section.id === this.activeSectionId },
-        { hue: section.end, active: section.id === this.activeSectionId },
-      ])
-      : [
-        { hue: this.centerHue - this.span / 2, active: true },
-        { hue: this.centerHue + this.span / 2, active: true },
-      ];
+    const boundaries = this.selectionSections().flatMap((section) => [
+      {
+        hue: section.start,
+        active: this.mode === "standard" || section.id === this.activeSectionId,
+      },
+      {
+        hue: section.end,
+        active: this.mode === "standard" || section.id === this.activeSectionId,
+      },
+    ]);
     boundaries.forEach(({ hue, active }) => {
       const radians = (hue - 90) * Math.PI / 180;
       const handleCenterRadius = outerRadius - 6;
@@ -818,7 +768,10 @@ function initializePalette() {
     await whenIdle();
     const center = Number(params.get("center"));
     if (!Number.isFinite(center)) return;
-    const urls = [-WHEEL_SEGMENT_SIZE, WHEEL_SEGMENT_SIZE].map((offset) => {
+    const urls = [
+      -ADJACENT_PREFETCH_DEGREES,
+      ADJACENT_PREFETCH_DEGREES,
+    ].map((offset) => {
       const adjacentParams = new URLSearchParams(params);
       const adjacentCenter = (center + offset + 360) % 360;
       adjacentParams.set("center", adjacentCenter.toFixed(1));
@@ -837,7 +790,7 @@ function initializePalette() {
     hueReadout.textContent = `${Math.round(state.center)}°`;
     const matchingHalfSpan = state.mode === "custom"
       ? state.span / 2
-      : (state.span - WHEEL_SEGMENT_SIZE) / 2;
+      : state.span / 2 - FIXED_MATCH_EDGE_INSET;
     hueRangeName.textContent = `${hueName(state.center - matchingHalfSpan)} — ${hueName(
       state.center + matchingHalfSpan,
     )}`;
@@ -851,18 +804,17 @@ function initializePalette() {
     customControls.hidden = !isCustom;
     wheelActionLabel.textContent = isCustom
       ? "DRAG EDGES OR SLICES"
-      : "DRAG TO ROTATE";
+      : "DRAG SLICE TO MOVE";
     canvas.setAttribute(
       "aria-label",
       isCustom
         ? "Continuous color wheel. Drag an edge to resize, drag a selected section to move, and press Delete to remove the selected section"
-        : "24-segment color wheel",
+        : "Continuous color wheel. Drag either edge or the selected slice to move it one degree at a time",
     );
     wheelCenter.setAttribute(
       "aria-label",
-      isCustom ? "Selected custom hue range" : "Drag the wheel to choose a hue",
+      isCustom ? "Selected custom hue range" : "Selected fixed hue range",
     );
-    wheelCenter.classList.toggle("custom-mode", isCustom);
     if (isCustom) {
       const percentage = Number((state.totalSpan / 3.6).toFixed(1));
       customAngle.textContent = `${state.totalSpan}°`;

@@ -397,18 +397,21 @@ def get():
                             width="760",
                             height="760",
                             tabindex="0",
-                            aria_label="24-segment color wheel",
+                            aria_label=(
+                                "Continuous color wheel. Drag either edge or the "
+                                "selected slice to move it one degree at a time"
+                            ),
                         ),
                         Button(
                             Span(
-                                "DRAG TO ROTATE",
+                                "DRAG SLICE TO MOVE",
                                 cls="wheel-action-label",
                             ),
                             Strong("75°", id="hue-readout"),
                             Span("orange — yellow", id="hue-range-name"),
                             type="button",
                             id="wheel-center",
-                            aria_label="Drag the wheel to choose a hue",
+                            aria_label="Selected fixed hue range",
                         ),
                         cls="wheel-shell",
                     ),
