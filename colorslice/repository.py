@@ -791,7 +791,7 @@ class ArtworkRepository:
               {" ".join(presence_clauses)}
               AND ({combined_coverage}) < %s
               {exact_exclusion}
-            ORDER BY ({combined_coverage}) DESC, colorfulness DESC
+            ORDER BY ({combined_coverage}) DESC, colorfulness DESC, id DESC
             LIMIT %s
         """
         parameters: list[Any] = [*source_values]
@@ -930,6 +930,7 @@ class ArtworkRepository:
                         item.coverage,
                         item.breadth,
                         item.artwork.colorfulness,
+                        item.artwork.id,
                     ),
                     reverse=True,
                 )
@@ -946,6 +947,7 @@ class ArtworkRepository:
                     item.coverage,
                     item.breadth,
                     item.artwork.colorfulness,
+                    item.artwork.id,
                 ),
                 reverse=True,
             )
@@ -981,6 +983,7 @@ class ArtworkRepository:
                         item.coverage,
                         item.breadth,
                         item.artwork.colorfulness,
+                        item.artwork.id,
                     ),
                     reverse=True,
                 )
@@ -996,6 +999,7 @@ class ArtworkRepository:
                     item.coverage,
                     item.breadth,
                     item.artwork.colorfulness,
+                    item.artwork.id,
                 ),
                 reverse=True,
             )

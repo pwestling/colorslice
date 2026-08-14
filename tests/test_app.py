@@ -57,7 +57,7 @@ def test_home_page_contains_palette_controls():
     assert 'hidden id="custom-loading-status"' in response.text
     assert "+ Add section" in response.text
     assert "Show more images" in response.text
-    assert 'data-relaxed-cutoff="1"' in response.text
+    assert 'data-relaxed-cutoff="1.0"' in response.text
     assert 'data-custom-edge=' not in response.text
     assert 'id="custom-section-list"' not in response.text
     assert 'id="remove-custom-section"' not in response.text
@@ -236,6 +236,25 @@ def test_custom_mode_searches_multiple_sections_as_one_union(monkeypatch):
     assert 'data-strictness="0.993"' in response.text
     assert 'data-match-span="60.0"' in response.text
     assert 'data-sections="2"' in response.text
+
+
+def test_relaxed_cutoff_preserves_the_adaptive_threshold_precision(monkeypatch):
+    threshold = 0.892753458188547
+
+    def search_sections_strictest(**parameters):
+        return threshold, []
+
+    monkeypatch.setattr(
+        repository,
+        "search_sections_strictest",
+        search_sections_strictest,
+    )
+    response = client.get(
+        "/artworks?mode=custom&ranges=20:50,200:230&strictness=1"
+    )
+
+    assert response.status_code == 200
+    assert f'data-relaxed-cutoff="{threshold!r}"' in response.text
 
 
 def test_health_endpoint_reports_catalog_size():

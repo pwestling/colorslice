@@ -347,7 +347,7 @@ def artwork_results(
         data_match_span=f"{matching_span:.1f}",
         data_mode=mode,
         data_sections=str(section_count),
-        data_relaxed_cutoff=f"{strictness:.12g}",
+        data_relaxed_cutoff=repr(strictness),
     )
     content = [heading]
     if not matches:

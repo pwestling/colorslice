@@ -108,6 +108,7 @@ def test_repository_pages_less_exact_matches_by_coverage(tmp_path, monkeypatch):
     for source_id, coverage in (
         ("exact", 1.0),
         ("closest", 0.90),
+        ("twin", 0.80),
         ("next", 0.80),
         ("last", 0.70),
     ):
@@ -136,8 +137,9 @@ def test_repository_pages_less_exact_matches_by_coverage(tmp_path, monkeypatch):
         limit=2,
     )
 
-    assert [match.artwork.title for match in first_page] == ["Closest", "Next"]
-    assert [match.artwork.title for match in second_page] == ["Last"]
+    assert [match.artwork.title for match in first_page] == ["Closest", "Twin"]
+    assert [match.artwork.title for match in second_page] == ["Next", "Last"]
+    assert len({match.artwork.id for match in first_page + second_page}) == 4
     assert all(match.coverage < 1.0 for match in first_page + second_page)
 
 
