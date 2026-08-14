@@ -125,6 +125,63 @@ const themeColor = (name) => getComputedStyle(document.documentElement)
   .getPropertyValue(name)
   .trim();
 
+function sectionsFromUrl(value) {
+  if (!value) return [];
+  return value.split(",").slice(0, 4).flatMap((rawSection) => {
+    const [rawStart, rawEnd, ...extra] = rawSection.split(":");
+    const start = Number(rawStart);
+    const end = Number(rawEnd);
+    if (
+      extra.length
+      || !Number.isFinite(start)
+      || !Number.isFinite(end)
+    ) return [];
+    const normalizedStart = normalizeHue(Math.round(start));
+    const normalizedEnd = normalizeHue(Math.round(end));
+    const span = clockwiseSpan(normalizedStart, normalizedEnd);
+    if (span < 1 || span > 359) return [];
+    return [{ start: normalizedStart, end: normalizedEnd }];
+  });
+}
+
+function sliceStateFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("mode") === "custom") {
+    const sections = sectionsFromUrl(params.get("ranges"));
+    if (sections.length) return { mode: "custom", sections };
+  }
+
+  if (!params.has("center") || !params.has("span")) return null;
+  const center = Number(params.get("center"));
+  const span = Number(params.get("span"));
+  if (!Number.isFinite(center) || ![90, 120].includes(span)) return null;
+  return {
+    mode: "standard",
+    center: normalizeHue(
+      Math.round(center / WHEEL_SEGMENT_SIZE) * WHEEL_SEGMENT_SIZE,
+    ),
+    span,
+  };
+}
+
+function syncSliceUrl(state) {
+  const url = new URL(window.location.href);
+  ["center", "span", "mode", "ranges"].forEach(
+    (parameter) => url.searchParams.delete(parameter),
+  );
+  if (state.mode === "custom") {
+    url.searchParams.set("mode", "custom");
+    url.searchParams.set(
+      "ranges",
+      state.sections.map((section) => `${section.start}:${section.end}`).join(","),
+    );
+  } else {
+    url.searchParams.set("center", String(Math.round(state.center)));
+    url.searchParams.set("span", String(state.span));
+  }
+  window.history.replaceState(null, "", url);
+}
+
 class ColorWheel {
   constructor(canvas, onChange) {
     this.canvas = canvas;
@@ -241,6 +298,27 @@ class ColorWheel {
         ? this.customSections.map((section) => ({ ...section }))
         : [],
     };
+  }
+
+  restore(state) {
+    if (state.mode === "custom") {
+      this.mode = "custom";
+      this.customSections = state.sections.map((section) => ({
+        id: this.nextSectionId++,
+        start: section.start,
+        end: section.end,
+      }));
+      this.activeSectionId = this.customSections[0].id;
+      this.activeBoundary = "end";
+      this.mergeCustomSections();
+      this.updateCustomGeometry();
+    } else {
+      this.mode = "standard";
+      this.centerHue = state.center;
+      this.span = state.span;
+      this.activeBoundary = null;
+    }
+    this.draw();
   }
 
   activeSection() {
@@ -687,6 +765,7 @@ function initializePalette() {
   let activeRequest;
   let resultGeneration = 0;
   const responseCache = new Map();
+  const serverParams = new URLSearchParams(new FormData(form));
 
   const fetchResults = async (url, signal) => {
     if (responseCache.has(url)) return responseCache.get(url);
@@ -763,6 +842,12 @@ function initializePalette() {
       state.center + matchingHalfSpan,
     )}`;
     const isCustom = state.mode === "custom";
+    document.querySelectorAll(".slice-option").forEach((option) => {
+      const active = isCustom
+        ? option.dataset.mode === "custom"
+        : Number(option.dataset.span) === state.span;
+      option.classList.toggle("active", active);
+    });
     customControls.hidden = !isCustom;
     wheelActionLabel.textContent = isCustom
       ? "DRAG EDGES OR SLICES"
@@ -827,22 +912,32 @@ function initializePalette() {
 
   const wheel = new ColorWheel(canvas, (state, finished) => {
     updateReadout(state);
-    if (finished) loadResults({ immediate: true });
+    if (finished) {
+      syncSliceUrl(state);
+      loadResults({ immediate: true });
+    }
   });
+  const urlState = sliceStateFromUrl();
+  if (urlState) wheel.restore(urlState);
   updateReadout(wheel.state());
+  syncSliceUrl(wheel.state());
   const initialParams = new URLSearchParams(new FormData(form));
-  responseCache.set(
-    `/artworks?${initialParams.toString()}`,
-    document.querySelector("#art-results").innerHTML,
-  );
-  activeRequest = new AbortController();
-  resultGeneration += 1;
-  void loadRemainingResults(
-    initialParams,
-    resultGeneration,
-    activeRequest.signal,
-  );
-  void prefetchAdjacentResults(initialParams, activeRequest.signal);
+  if (initialParams.toString() === serverParams.toString()) {
+    responseCache.set(
+      `/artworks?${initialParams.toString()}`,
+      document.querySelector("#art-results").innerHTML,
+    );
+    activeRequest = new AbortController();
+    resultGeneration += 1;
+    void loadRemainingResults(
+      initialParams,
+      resultGeneration,
+      activeRequest.signal,
+    );
+    void prefetchAdjacentResults(initialParams, activeRequest.signal);
+  } else {
+    loadResults({ immediate: true });
+  }
 
   document.querySelectorAll(".slice-option").forEach((button) => {
     button.addEventListener("click", () => {
@@ -856,6 +951,7 @@ function initializePalette() {
         wheel.setStandardSpan(Number(button.dataset.span));
       }
       updateReadout(wheel.state());
+      syncSliceUrl(wheel.state());
       loadResults({ immediate: true });
     });
   });
