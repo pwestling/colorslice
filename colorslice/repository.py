@@ -725,6 +725,91 @@ class ArtworkRepository:
             rows = connection.execute(query, parameters).fetchall()
         return [Artwork.from_mapping(dict(row)) for row in rows]
 
+    def _fetch_relaxed_candidates(
+        self,
+        sections: tuple[tuple[float, float], ...],
+        sources: tuple[str, ...],
+        maximum_coverage: float,
+        candidate_limit: int,
+    ) -> list[Artwork]:
+        if not self.is_postgres:
+            raise RuntimeError("Relaxed candidate search requires Postgres")
+
+        source_values = sources or ("magic",)
+        source_clause = " OR ".join("source = %s" for _ in source_values)
+        presence_masks = [_selected_mask((section,)) for section in sections]
+        presence_clauses = []
+        for presence_mask in presence_masks:
+            selected_bins = [
+                index for index, bit in enumerate(presence_mask) if bit == "1"
+            ]
+            raw_mass = " + ".join(
+                f"COALESCE((hue_histogram ->> {index})::double precision, 0.0)"
+                for index in selected_bins
+            ) or "0.0"
+            presence_clauses.append(
+                "AND (hue_mask & %s::bit(72)) <> %s::bit(72) "
+                f"AND ({raw_mass}) >= %s"
+            )
+
+        selected = _selected_mask(sections)
+        selected_bins = [
+            index for index, bit in enumerate(selected) if bit == "1"
+        ]
+        hue_coverage = " + ".join(
+            f"COALESCE((hue_histogram ->> {index})::double precision, 0.0)"
+            for index in selected_bins
+        ) or "0.0"
+        area_coverage = " + ".join(
+            f"COALESCE((area_hue_histogram ->> {index})::double precision, 0.0)"
+            for index in selected_bins
+        ) or "0.0"
+        combined_coverage = f"LEAST(({hue_coverage}), ({area_coverage}))"
+
+        exact_exclusion = ""
+        exact_parameters: list[Any] = []
+        if maximum_coverage >= 1.0:
+            outside = "".join("0" if bit == "1" else "1" for bit in selected)
+            exact_exclusion = """
+                AND (
+                    (hue_mask & %s::bit(72)) <> %s::bit(72)
+                    OR (area_hue_mask & %s::bit(72)) <> %s::bit(72)
+                )
+            """
+            exact_parameters.extend(
+                (outside, ZERO_HUE_MASK, outside, ZERO_HUE_MASK)
+            )
+
+        query = f"""
+            SELECT id, source, source_id, title, artist, year, image_url,
+                   thumbnail_url, source_url, license_label, hue_histogram,
+                   area_hue_histogram, dominant_hue, colorfulness
+            FROM artworks
+            WHERE ({source_clause})
+              AND hue_mask IS NOT NULL
+              AND area_hue_mask IS NOT NULL
+              {" ".join(presence_clauses)}
+              AND ({combined_coverage}) < %s
+              {exact_exclusion}
+            ORDER BY ({combined_coverage}) DESC, colorfulness DESC
+            LIMIT %s
+        """
+        parameters: list[Any] = [*source_values]
+        for presence_mask in presence_masks:
+            parameters.extend(
+                (
+                    presence_mask,
+                    ZERO_HUE_MASK,
+                    MINIMUM_RAW_SECTION_PRESENCE,
+                )
+            )
+        parameters.append(min(1.0, maximum_coverage + 0.02))
+        parameters.extend(exact_parameters)
+        parameters.append(candidate_limit)
+        with self._connection() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [Artwork.from_mapping(dict(row)) for row in rows]
+
     def search(
         self,
         *,
@@ -828,11 +913,12 @@ class ArtworkRepository:
         normalized_center = center % 360.0
         if self.exact_masks_ready and self.is_postgres:
             relaxed = []
-            for raw_coverage in (0.95, 0.90, 0.80, 0.60, 0.0):
-                candidates = self._fetch_present_section_candidates(
+            for candidate_limit in (500, 2_000, 10_000, 50_000):
+                candidates = self._fetch_relaxed_candidates(
                     ((normalized_center, span),),
                     sources,
-                    minimum_raw_coverage=raw_coverage,
+                    maximum_coverage,
+                    candidate_limit,
                 )
                 ranked = self._rank_candidates(candidates, center, span, 0.0)
                 relaxed = [
@@ -876,12 +962,13 @@ class ArtworkRepository:
     ) -> list[ArtworkMatch]:
         if self.exact_masks_ready and self.is_postgres:
             relaxed = []
-            for raw_coverage in (0.95, 0.90, 0.80, 0.60, 0.0):
+            for candidate_limit in (500, 2_000, 10_000, 50_000):
                 ranked = self._rank_section_artworks(
-                    self._fetch_present_section_candidates(
+                    self._fetch_relaxed_candidates(
                         sections,
                         sources,
-                        minimum_raw_coverage=raw_coverage,
+                        maximum_coverage,
+                        candidate_limit,
                     ),
                     sections,
                 )
