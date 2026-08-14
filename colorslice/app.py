@@ -1,4 +1,5 @@
 from functools import lru_cache
+from hashlib import sha256
 import math
 from pathlib import Path
 
@@ -37,10 +38,15 @@ from colorslice.repository import (
 
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+STATIC_VERSION = sha256(
+    (STATIC_DIR / "styles.css").read_bytes()
+    + (STATIC_DIR / "app.js").read_bytes()
+).hexdigest()[:12]
 SEED_DATABASE = Path(__file__).resolve().parent.parent / "data/seed.db"
 RESULT_LIMIT = 10_000
 INITIAL_RESULT_LIMIT = 24
 RESULT_PAGE_SIZE = 96
+RELAXED_RESULT_BATCH_SIZE = 10
 WHEEL_SEGMENT_DEGREES = 15.0
 CUSTOM_MINIMUM_RESULTS = 5
 repository = ArtworkRepository()
@@ -79,9 +85,9 @@ app, rt = fast_app(
             href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap",
             rel="stylesheet",
         ),
-        Link(rel="stylesheet", href="/static/styles.css"),
+        Link(rel="stylesheet", href=f"/static/styles.css?v={STATIC_VERSION}"),
         Link(rel="icon", href="/static/favicon.svg", type="image/svg+xml"),
-        Script(src="/static/app.js", defer=True),
+        Script(src=f"/static/app.js?v={STATIC_VERSION}", defer=True),
     )
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -89,7 +95,10 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 async def cache_public_artwork_responses(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path in {"/artworks", "/artworks/page"} and response.status_code == 200:
+    if (
+        request.url.path in {"/artworks", "/artworks/page", "/artworks/more"}
+        and response.status_code == 200
+    ):
         response.headers["Cache-Control"] = "public, max-age=60"
         response.headers["Vercel-CDN-Cache-Control"] = (
             "public, max-age=86400, stale-while-revalidate=604800"
@@ -100,7 +109,7 @@ async def cache_public_artwork_responses(request: Request, call_next):
 app.add_middleware(BaseHTTPMiddleware, dispatch=cache_public_artwork_responses)
 
 
-def _artwork_card(match: ArtworkMatch):
+def _artwork_card(match: ArtworkMatch, precise_coverage: bool = False):
     artwork = match.artwork
     if artwork.year is None:
         year = ""
@@ -109,6 +118,11 @@ def _artwork_card(match: ArtworkMatch):
     else:
         year = f" · {artwork.year}"
     artist = artwork.artist or "Unknown artist"
+    coverage = (
+        f"{min(match.coverage * 100, 99.99):.2f}"
+        if precise_coverage and match.coverage < 1.0
+        else str(round(match.coverage * 100))
+    )
     return A(
         Div(
             Img(
@@ -119,7 +133,7 @@ def _artwork_card(match: ArtworkMatch):
             ),
             Div(
                 Span("Magic: The Gathering", cls="source-badge source-magic"),
-                Span(f"{round(match.coverage * 100)}% in slice", cls="match-badge"),
+                Span(f"{coverage}% in slice", cls="match-badge"),
                 cls="card-badges",
             ),
             Div(
@@ -210,6 +224,36 @@ def _cached_section_matches(
     return strictness, tuple(matches)
 
 
+@lru_cache(maxsize=384)
+def _cached_relaxed_page(
+    center: float,
+    matching_span: float,
+    maximum_coverage: float,
+    sources: tuple[str, ...],
+    offset: int,
+    sections: tuple[tuple[float, float], ...] = (),
+) -> tuple[ArtworkMatch, ...]:
+    limit = RELAXED_RESULT_BATCH_SIZE + 1
+    if sections:
+        matches = repository.search_sections_relaxed(
+            sections=sections,
+            maximum_coverage=maximum_coverage,
+            sources=sources,
+            offset=offset,
+            limit=limit,
+        )
+    else:
+        matches = repository.search_relaxed(
+            center=center,
+            span=matching_span,
+            maximum_coverage=maximum_coverage,
+            sources=sources,
+            offset=offset,
+            limit=limit,
+        )
+    return tuple(matches)
+
+
 def _parse_custom_sections(value: str) -> tuple[tuple[float, float], ...]:
     sections = []
     for raw_section in value.split(",")[:4]:
@@ -246,6 +290,20 @@ def _artwork_grid(matches: tuple[ArtworkMatch, ...]):
         *(_artwork_card(match) for match in visible),
         cls="art-grid",
         data_next_offset=_next_offset(0, len(visible), len(matches)),
+    )
+
+
+def _show_more_control(strict_pages_pending: bool):
+    attributes = {"disabled": True} if strict_pages_pending else {}
+    return Div(
+        Button(
+            "Show more images",
+            type="button",
+            cls="show-more-images",
+            data_relaxed_offset="0",
+            **attributes,
+        ),
+        cls="show-more-control",
     )
 
 
@@ -289,13 +347,20 @@ def artwork_results(
         data_match_span=f"{matching_span:.1f}",
         data_mode=mode,
         data_sections=str(section_count),
+        data_relaxed_cutoff=f"{strictness:.12g}",
     )
-    content = (
-        _artwork_grid(matches)
-        if matches
-        else _empty_state(center, span, strictness, repository.count(sources))
+    content = [heading]
+    if not matches:
+        content.append(
+            _empty_state(center, span, strictness, repository.count(sources))
+        )
+    content.extend(
+        (
+            _artwork_grid(matches),
+            _show_more_control(len(matches) > INITIAL_RESULT_LIMIT),
+        )
     )
-    return heading, content
+    return tuple(content)
 
 
 def artwork_page(
@@ -317,6 +382,36 @@ def artwork_page(
         *(_artwork_card(match) for match in page),
         cls="art-page",
         data_next_offset=_next_offset(offset, len(page), len(matches)),
+    )
+
+
+def relaxed_artwork_page(
+    center: float,
+    span: float,
+    maximum_coverage: float,
+    sources: tuple[str, ...],
+    offset: int,
+    mode: str = "standard",
+    sections: tuple[tuple[float, float], ...] = (),
+):
+    matching_span = _matching_span(span, mode)
+    relaxed_sections = sections if mode == "custom" else ()
+    matches = _cached_relaxed_page(
+        center,
+        matching_span,
+        maximum_coverage,
+        sources,
+        offset,
+        relaxed_sections,
+    )
+    page = matches[:RELAXED_RESULT_BATCH_SIZE]
+    has_more = len(matches) > RELAXED_RESULT_BATCH_SIZE
+    next_offset = str(offset + len(page)) if has_more else ""
+    return Div(
+        *(_artwork_card(match, precise_coverage=True) for match in page),
+        cls="relaxed-art-page",
+        data_next_offset=next_offset,
+        data_returned=str(len(page)),
     )
 
 
@@ -500,6 +595,38 @@ def get(
         safe_center,
         safe_span,
         safe_strictness,
+        allowed_sources,
+        safe_offset,
+        safe_mode,
+        safe_sections,
+    )
+
+
+@rt("/artworks/more")
+def get(
+    request: Request,
+    center: float = 75.0,
+    span: float = 120.0,
+    maximum_coverage: float = 1.0,
+    offset: int = 0,
+    mode: str = "standard",
+    ranges: str = "",
+):
+    allowed_sources = ("magic",)
+    safe_center = center % 360.0
+    safe_mode = "custom" if mode == "custom" else "standard"
+    safe_span = (
+        min(359.0, max(1.0, span))
+        if safe_mode == "custom"
+        else min(180.0, max(30.0, span))
+    )
+    safe_maximum = min(1.0, max(0.0, maximum_coverage))
+    safe_offset = min(RESULT_LIMIT, max(0, offset))
+    safe_sections = _parse_custom_sections(ranges) if safe_mode == "custom" else ()
+    return relaxed_artwork_page(
+        safe_center,
+        safe_span,
+        safe_maximum,
         allowed_sources,
         safe_offset,
         safe_mode,

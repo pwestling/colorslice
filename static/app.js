@@ -761,6 +761,51 @@ function initializePalette() {
         return;
       }
     }
+    if (generation === resultGeneration) {
+      const button = document.querySelector("#art-results .show-more-images");
+      if (button) button.disabled = false;
+    }
+  };
+
+  const appendRelaxedResults = async (button) => {
+    const results = document.querySelector("#art-results");
+    const heading = results.querySelector(".results-heading");
+    const grid = results.querySelector(".art-grid");
+    if (!heading || !grid) return;
+
+    const generation = resultGeneration;
+    const params = new URLSearchParams(new FormData(form));
+    params.set("maximum_coverage", heading.dataset.relaxedCutoff || "1");
+    params.set("offset", button.dataset.relaxedOffset || "0");
+    const url = `/artworks/more?${params.toString()}`;
+    button.disabled = true;
+    button.textContent = "Loading…";
+    try {
+      const html = await fetchResults(url, activeRequest?.signal);
+      if (generation !== resultGeneration) return;
+      const template = document.createElement("template");
+      template.innerHTML = html.trim();
+      const page = template.content.firstElementChild;
+      if (!page) return;
+      const returned = Number(page.dataset.returned || 0);
+      if (returned) {
+        results.querySelector(".empty-state")?.remove();
+        grid.append(...page.children);
+      }
+      const nextOffset = page.dataset.nextOffset;
+      if (!nextOffset) {
+        button.closest(".show-more-control")?.remove();
+        return;
+      }
+      button.dataset.relaxedOffset = nextOffset;
+    } catch (error) {
+      if (error.name !== "AbortError") console.error(error);
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = "Show more images";
+      }
+    }
   };
 
   const prefetchAdjacentResults = async (params, signal) => {
@@ -909,6 +954,10 @@ function initializePalette() {
   });
 
   addCustomSection.addEventListener("click", () => wheel.addSection());
+  document.querySelector("#art-results").addEventListener("click", (event) => {
+    const button = event.target.closest(".show-more-images");
+    if (button) void appendRelaxedResults(button);
+  });
 }
 
 if (document.readyState === "loading") {

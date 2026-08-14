@@ -815,6 +815,105 @@ class ArtworkRepository:
         matches = [match for match in ranked if match.coverage >= threshold]
         return threshold, matches[:limit]
 
+    def search_relaxed(
+        self,
+        *,
+        center: float,
+        span: float,
+        maximum_coverage: float,
+        sources: tuple[str, ...],
+        offset: int = 0,
+        limit: int = 10,
+    ) -> list[ArtworkMatch]:
+        normalized_center = center % 360.0
+        if self.exact_masks_ready and self.is_postgres:
+            relaxed = []
+            for raw_coverage in (0.95, 0.90, 0.80, 0.60, 0.0):
+                candidates = self._fetch_present_section_candidates(
+                    ((normalized_center, span),),
+                    sources,
+                    minimum_raw_coverage=raw_coverage,
+                )
+                ranked = self._rank_candidates(candidates, center, span, 0.0)
+                relaxed = [
+                    match for match in ranked
+                    if match.coverage < maximum_coverage
+                ]
+                relaxed.sort(
+                    key=lambda item: (
+                        item.coverage,
+                        item.breadth,
+                        item.artwork.colorfulness,
+                    ),
+                    reverse=True,
+                )
+                if len(relaxed) >= offset + limit:
+                    break
+        else:
+            candidates = self._fetch_candidates(normalized_center, span, sources)
+            ranked = self._rank_candidates(candidates, center, span, 0.0)
+            relaxed = [
+                match for match in ranked if match.coverage < maximum_coverage
+            ]
+            relaxed.sort(
+                key=lambda item: (
+                    item.coverage,
+                    item.breadth,
+                    item.artwork.colorfulness,
+                ),
+                reverse=True,
+            )
+        return relaxed[offset:offset + limit]
+
+    def search_sections_relaxed(
+        self,
+        *,
+        sections: tuple[tuple[float, float], ...],
+        maximum_coverage: float,
+        sources: tuple[str, ...],
+        offset: int = 0,
+        limit: int = 10,
+    ) -> list[ArtworkMatch]:
+        if self.exact_masks_ready and self.is_postgres:
+            relaxed = []
+            for raw_coverage in (0.95, 0.90, 0.80, 0.60, 0.0):
+                ranked = self._rank_section_artworks(
+                    self._fetch_present_section_candidates(
+                        sections,
+                        sources,
+                        minimum_raw_coverage=raw_coverage,
+                    ),
+                    sections,
+                )
+                relaxed = [
+                    match for match in ranked
+                    if match.coverage < maximum_coverage
+                ]
+                relaxed.sort(
+                    key=lambda item: (
+                        item.coverage,
+                        item.breadth,
+                        item.artwork.colorfulness,
+                    ),
+                    reverse=True,
+                )
+                if len(relaxed) >= offset + limit:
+                    break
+        else:
+            ranked = self._rank_section_candidates(sections, sources)
+            relaxed = [
+                match for match in ranked if match.coverage < maximum_coverage
+            ]
+            relaxed.sort(
+                key=lambda item: (
+                    item.coverage,
+                    item.breadth,
+                    item.artwork.colorfulness,
+                ),
+                reverse=True,
+            )
+        return relaxed[offset:offset + limit]
+
     def _rank_section_candidates(
         self,
         sections: tuple[tuple[float, float], ...],

@@ -4,9 +4,11 @@ from starlette.testclient import TestClient
 from colorslice.app import (
     CUSTOM_MINIMUM_RESULTS,
     INITIAL_RESULT_LIMIT,
+    RELAXED_RESULT_BATCH_SIZE,
     RESULT_LIMIT,
     WHEEL_SEGMENT_DEGREES,
     _cached_matches,
+    _cached_relaxed_page,
     _cached_section_matches,
     app,
     repository,
@@ -19,9 +21,11 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def clear_match_cache():
     _cached_matches.cache_clear()
+    _cached_relaxed_page.cache_clear()
     _cached_section_matches.cache_clear()
     yield
     _cached_matches.cache_clear()
+    _cached_relaxed_page.cache_clear()
     _cached_section_matches.cache_clear()
 
 
@@ -52,6 +56,8 @@ def test_home_page_contains_palette_controls():
     assert 'role="status"' in response.text
     assert 'hidden id="custom-loading-status"' in response.text
     assert "+ Add section" in response.text
+    assert "Show more images" in response.text
+    assert 'data-relaxed-cutoff="1"' in response.text
     assert 'data-custom-edge=' not in response.text
     assert 'id="custom-section-list"' not in response.text
     assert 'id="remove-custom-section"' not in response.text
@@ -79,6 +85,57 @@ def test_artwork_responses_are_shared_at_the_edge():
     assert response.headers["cache-control"] == "public, max-age=60"
     assert "max-age=86400" in response.headers["vercel-cdn-cache-control"]
     assert page.headers["cache-control"] == "public, max-age=60"
+
+
+def test_relaxed_endpoint_pages_below_the_current_cutoff(monkeypatch):
+    standard_requests = []
+    section_requests = []
+
+    def search_relaxed(**parameters):
+        standard_requests.append(parameters)
+        return []
+
+    def search_sections_relaxed(**parameters):
+        section_requests.append(parameters)
+        return []
+
+    monkeypatch.setattr(repository, "search_relaxed", search_relaxed)
+    monkeypatch.setattr(
+        repository,
+        "search_sections_relaxed",
+        search_sections_relaxed,
+    )
+
+    standard = client.get(
+        "/artworks/more?center=76&span=120&maximum_coverage=0.99&offset=10"
+    )
+    custom = client.get(
+        "/artworks/more?mode=custom&ranges=15:45,195:225"
+        "&maximum_coverage=0.98&offset=20"
+    )
+
+    assert standard.status_code == 200
+    assert custom.status_code == 200
+    assert 'data-returned="0"' in standard.text
+    assert standard_requests == [
+        {
+            "center": 76.0,
+            "span": 120.0 - WHEEL_SEGMENT_DEGREES,
+            "maximum_coverage": 0.99,
+            "sources": ("magic",),
+            "offset": 10,
+            "limit": RELAXED_RESULT_BATCH_SIZE + 1,
+        }
+    ]
+    assert section_requests == [
+        {
+            "sections": ((30.0, 30.0), (210.0, 30.0)),
+            "maximum_coverage": 0.98,
+            "sources": ("magic",),
+            "offset": 20,
+            "limit": RELAXED_RESULT_BATCH_SIZE + 1,
+        }
+    ]
 
 
 def test_first_page_and_background_page_share_ranked_match_cache(monkeypatch):

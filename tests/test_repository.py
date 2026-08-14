@@ -100,6 +100,47 @@ def test_repository_selects_strictest_threshold_with_three_matches(tmp_path, mon
     assert [match.artwork.title for match in matches] == ["Exact", "Close", "Third"]
 
 
+def test_repository_pages_less_exact_matches_by_coverage(tmp_path, monkeypatch):
+    database_path = tmp_path / "relaxed.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    for source_id, coverage in (
+        ("exact", 1.0),
+        ("closest", 0.90),
+        ("next", 0.80),
+        ("last", 0.70),
+    ):
+        histogram = histogram_with_coverage(coverage)
+        repository.upsert(
+            record(source_id, source_id.title()),
+            histogram,
+            histogram,
+            32.5,
+            0.8,
+        )
+
+    first_page = repository.search_relaxed(
+        center=30.0,
+        span=90.0,
+        maximum_coverage=1.0,
+        sources=("met",),
+        limit=2,
+    )
+    second_page = repository.search_relaxed(
+        center=30.0,
+        span=90.0,
+        maximum_coverage=1.0,
+        sources=("met",),
+        offset=2,
+        limit=2,
+    )
+
+    assert [match.artwork.title for match in first_page] == ["Closest", "Next"]
+    assert [match.artwork.title for match in second_page] == ["Last"]
+    assert all(match.coverage < 1.0 for match in first_page + second_page)
+
+
 def test_repository_filters_by_area_but_ranks_by_chroma_breadth(tmp_path, monkeypatch):
     database_path = tmp_path / "area-coverage.db"
     monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
