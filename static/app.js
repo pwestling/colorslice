@@ -154,6 +154,10 @@ function sliceStateFromUrl() {
 
 function syncSliceUrl(state) {
   const url = new URL(window.location.href);
+  if (
+    url.searchParams.get("view") === "art"
+    || url.searchParams.get("mode") === "art"
+  ) return;
   ["center", "span", "mode", "ranges"].forEach(
     (parameter) => url.searchParams.delete(parameter),
   );
@@ -919,22 +923,34 @@ function initializePalette() {
   updateReadout(wheel.state());
   syncSliceUrl(wheel.state());
   const initialParams = new URLSearchParams(new FormData(form));
-  if (initialParams.toString() === serverParams.toString()) {
-    responseCache.set(
-      `/artworks?${initialParams.toString()}`,
-      document.querySelector("#art-results").innerHTML,
-    );
-    activeRequest = new AbortController();
-    resultGeneration += 1;
-    void loadRemainingResults(
-      initialParams,
-      resultGeneration,
-      activeRequest.signal,
-    );
-    void prefetchAdjacentResults(initialParams, activeRequest.signal);
-  } else {
-    loadResults({ immediate: true });
-  }
+  let paletteHydrated = false;
+  window.colorsliceActivatePalette = () => {
+    if (paletteHydrated) return;
+    paletteHydrated = true;
+    if (initialParams.toString() === serverParams.toString()) {
+      responseCache.set(
+        `/artworks?${initialParams.toString()}`,
+        document.querySelector("#art-results").innerHTML,
+      );
+      activeRequest = new AbortController();
+      resultGeneration += 1;
+      void loadRemainingResults(
+        initialParams,
+        resultGeneration,
+        activeRequest.signal,
+      );
+      void prefetchAdjacentResults(initialParams, activeRequest.signal);
+    } else {
+      loadResults({ immediate: true });
+    }
+  };
+  const initialUrlParams = new URLSearchParams(window.location.search);
+  const startsInExplorer = (
+    initialUrlParams.get("view") === "art"
+    || initialUrlParams.get("mode") === "art"
+    || initialUrlParams.has("art")
+  );
+  if (!startsInExplorer) window.colorsliceActivatePalette();
 
   document.querySelectorAll(".slice-option").forEach((button) => {
     button.addEventListener("click", () => {

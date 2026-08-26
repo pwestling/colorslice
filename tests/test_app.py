@@ -8,6 +8,8 @@ from colorslice.app import (
     RESULT_LIMIT,
     WHEEL_SEGMENT_DEGREES,
     _cached_matches,
+    _cached_available_sets,
+    _cached_explorer_search,
     _cached_relaxed_page,
     _cached_section_matches,
     app,
@@ -23,10 +25,14 @@ def clear_match_cache():
     _cached_matches.cache_clear()
     _cached_relaxed_page.cache_clear()
     _cached_section_matches.cache_clear()
+    _cached_available_sets.cache_clear()
+    _cached_explorer_search.cache_clear()
     yield
     _cached_matches.cache_clear()
     _cached_relaxed_page.cache_clear()
     _cached_section_matches.cache_clear()
+    _cached_available_sets.cache_clear()
+    _cached_explorer_search.cache_clear()
 
 
 def test_home_page_contains_palette_controls():
@@ -62,6 +68,14 @@ def test_home_page_contains_palette_controls():
     assert 'id="custom-section-list"' not in response.text
     assert 'id="remove-custom-section"' not in response.text
     assert 'class="wordmark"' not in response.text
+    assert 'data-view="palette"' in response.text
+    assert 'data-view="art"' in response.text
+    assert "By color" in response.text
+    assert "By artwork" in response.text
+    assert 'id="artwork-search-input"' in response.text
+    assert 'id="artwork-set-filter"' in response.text
+    assert 'id="explorer-detail"' in response.text
+    assert "/static/explorer.js" in response.text
 
 
 def test_artwork_endpoint_supports_high_match_thresholds():
@@ -262,3 +276,49 @@ def test_health_endpoint_reports_catalog_size():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["database"] == "sqlite"
+
+
+def test_explorer_search_and_detail_endpoints(monkeypatch):
+    artwork = repository.all_artworks()[0]
+    search_requests = []
+
+    def search_artworks(query, set_code, limit):
+        search_requests.append((query, set_code, limit))
+        return [artwork]
+
+    def artwork_sets(artwork_ids):
+        assert artwork_ids == (artwork.id,)
+        return {artwork.id: ()}
+
+    monkeypatch.setattr(repository, "search_artworks", search_artworks)
+    monkeypatch.setattr(repository, "artwork_sets", artwork_sets)
+    monkeypatch.setattr(repository, "artwork_by_id", lambda artwork_id: artwork)
+
+    search = client.get("/explore/search?q=sol&set_code=cmm")
+    detail = client.get(f"/explore/artwork?id={artwork.id}")
+
+    assert search.status_code == 200
+    assert search_requests == [("sol", "cmm", 32)]
+    assert f'data-artwork-id="{artwork.id}"' in search.text
+    assert "Show hue profile" in search.text
+    assert detail.status_code == 200
+    assert 'id="artwork-hue-wheel"' in detail.text
+    assert 'data-histogram="' in detail.text
+    assert "Chroma-weighted" in detail.text
+    assert "View on Scryfall" in detail.text
+
+
+def test_explorer_requires_a_query_unless_a_set_is_selected(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        repository,
+        "search_artworks",
+        lambda query, set_code, limit: calls.append((query, set_code, limit)) or [],
+    )
+
+    empty = client.get("/explore/search?q=x")
+    set_only = client.get("/explore/search?set_code=lea")
+
+    assert "Search for an artwork." in empty.text
+    assert calls == [("", "lea", 32)]
+    assert "No artworks found." in set_only.text

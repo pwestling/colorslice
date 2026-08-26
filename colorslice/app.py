@@ -13,11 +13,14 @@ from fasthtml.common import (
     H2,
     Img,
     Input,
+    Label,
     Link,
     Main,
     Meta,
+    Option,
     P,
     Script,
+    Select,
     Small,
     Span,
     Strong,
@@ -28,8 +31,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
-from colorslice.color import hue_name
-from colorslice.models import ArtworkMatch
+from colorslice.color import hue_name, noise_filtered_histogram
+from colorslice.models import Artwork, ArtworkMatch, ArtworkSet
 from colorslice.repository import (
     CATALOG_PROFILE_VERSION,
     ArtworkRepository,
@@ -41,6 +44,7 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 STATIC_VERSION = sha256(
     (STATIC_DIR / "styles.css").read_bytes()
     + (STATIC_DIR / "app.js").read_bytes()
+    + (STATIC_DIR / "explorer.js").read_bytes()
 ).hexdigest()[:12]
 SEED_DATABASE = Path(__file__).resolve().parent.parent / "data/seed.db"
 RESULT_LIMIT = 10_000
@@ -88,6 +92,7 @@ app, rt = fast_app(
         Link(rel="stylesheet", href=f"/static/styles.css?v={STATIC_VERSION}"),
         Link(rel="icon", href="/static/favicon.svg", type="image/svg+xml"),
         Script(src=f"/static/app.js?v={STATIC_VERSION}", defer=True),
+        Script(src=f"/static/explorer.js?v={STATIC_VERSION}", defer=True),
     )
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -96,7 +101,13 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def cache_public_artwork_responses(request: Request, call_next):
     response = await call_next(request)
     if (
-        request.url.path in {"/artworks", "/artworks/page", "/artworks/more"}
+        request.url.path in {
+            "/artworks",
+            "/artworks/page",
+            "/artworks/more",
+            "/explore/search",
+            "/explore/artwork",
+        }
         and response.status_code == 200
     ):
         response.headers["Cache-Control"] = "public, max-age=60"
@@ -479,53 +490,286 @@ def _control_panel():
     )
 
 
+def _view_switcher():
+    return Div(
+        Button(
+            "By color",
+            type="button",
+            cls="view-option active",
+            data_view="palette",
+            role="tab",
+            aria_selected="true",
+            aria_controls="palette-view",
+        ),
+        Button(
+            "By artwork",
+            type="button",
+            cls="view-option",
+            data_view="art",
+            role="tab",
+            aria_selected="false",
+            aria_controls="explorer-view",
+        ),
+        cls="view-switcher",
+        role="tablist",
+        aria_label="Search mode",
+    )
+
+
+@lru_cache(maxsize=1)
+def _cached_available_sets() -> tuple[ArtworkSet, ...]:
+    return repository.available_sets()
+
+
+@lru_cache(maxsize=512)
+def _cached_explorer_search(
+    query: str,
+    set_code: str,
+) -> tuple[Artwork, ...]:
+    return tuple(repository.search_artworks(query, set_code, limit=32))
+
+
+def _set_summary(sets: tuple[ArtworkSet, ...], limit: int = 3) -> str:
+    visible = [artwork_set.code.upper() for artwork_set in sets[:limit]]
+    if len(sets) > limit:
+        visible.append(f"+{len(sets) - limit}")
+    return " · ".join(visible)
+
+
+def _explorer_result_card(
+    artwork: Artwork,
+    sets: tuple[ArtworkSet, ...],
+):
+    artist = artwork.artist or "Unknown artist"
+    set_summary = _set_summary(sets)
+    return Button(
+        Div(
+            Img(
+                src=artwork.thumbnail_url,
+                alt=f"{artwork.title} by {artist}",
+                loading="lazy",
+                decoding="async",
+            ),
+            cls="explorer-result-image",
+        ),
+        Div(
+            Strong(artwork.title),
+            Span(artist),
+            Small(set_summary) if set_summary else None,
+            cls="explorer-result-copy",
+        ),
+        type="button",
+        cls="explorer-result",
+        data_artwork_id=artwork.id,
+        aria_label=f"Show hue profile for {artwork.title} by {artist}",
+    )
+
+
+def _explorer_search_results(
+    artworks: tuple[Artwork, ...],
+):
+    if not artworks:
+        return P("No artworks found.", cls="explorer-empty")
+    sets_by_artwork = repository.artwork_sets(
+        tuple(artwork.id for artwork in artworks)
+    )
+    return Div(
+        *(
+            _explorer_result_card(
+                artwork,
+                sets_by_artwork.get(artwork.id, ()),
+            )
+            for artwork in artworks
+        ),
+        cls="explorer-results-grid",
+        data_result_count=str(len(artworks)),
+    )
+
+
+def _set_chips(sets: tuple[ArtworkSet, ...]):
+    visible = sets[:10]
+    chips = [
+        Span(
+            artwork_set.code.upper(),
+            cls="artwork-set-chip",
+            title=artwork_set.name,
+        )
+        for artwork_set in visible
+    ]
+    if len(sets) > len(visible):
+        chips.append(
+            Span(
+                f"+{len(sets) - len(visible)}",
+                cls="artwork-set-chip artwork-set-more",
+                title=", ".join(
+                    f"{artwork_set.name} ({artwork_set.code.upper()})"
+                    for artwork_set in sets[len(visible):]
+                ),
+            )
+        )
+    return Div(*chips, cls="artwork-set-chips")
+
+
+def _explorer_artwork_detail(artwork: Artwork):
+    artist = artwork.artist or "Unknown artist"
+    year = f" · {artwork.year}" if artwork.year is not None else ""
+    profile = noise_filtered_histogram(artwork.hue_histogram)
+    histogram = ",".join(f"{value:.9g}" for value in profile)
+    sets = repository.artwork_sets((artwork.id,)).get(artwork.id, ())
+    return Div(
+        Div(
+            Img(
+                src=artwork.image_url,
+                alt=f"{artwork.title} by {artist}",
+                cls="explorer-artwork-image",
+            ),
+            Div(
+                H2(artwork.title),
+                P(f"{artist}{year}"),
+                _set_chips(sets),
+                A(
+                    "View on Scryfall",
+                    href=artwork.source_url,
+                    target="_blank",
+                    rel="noreferrer",
+                    cls="artwork-source-link",
+                ),
+                cls="explorer-artwork-copy",
+            ),
+            cls="explorer-artwork-pane",
+        ),
+        Div(
+            P("HUE PROFILE", cls="control-label"),
+            Canvas(
+                id="artwork-hue-wheel",
+                width="680",
+                height="680",
+                data_histogram=histogram,
+                aria_label=(
+                    f"Circular chroma-weighted hue histogram for {artwork.title}"
+                ),
+                role="img",
+            ),
+            P("Chroma-weighted", cls="histogram-caption"),
+            cls="explorer-histogram-pane",
+        ),
+        cls="explorer-detail-card",
+        data_artwork_id=artwork.id,
+    )
+
+
+def _explorer_view():
+    set_options = [Option("All sets", value="")]
+    set_options.extend(
+        Option(
+            f"{artwork_set.name} ({artwork_set.code.upper()})",
+            value=artwork_set.code,
+        )
+        for artwork_set in _cached_available_sets()
+    )
+    return Div(
+        Form(
+            Label(
+                Span("ARTWORK", cls="control-label"),
+                Input(
+                    type="search",
+                    id="artwork-search-input",
+                    name="q",
+                    placeholder="Card name or artist",
+                    autocomplete="off",
+                    spellcheck="false",
+                ),
+                cls="explorer-search-field",
+            ),
+            Label(
+                Span("SET", cls="control-label"),
+                Select(
+                    *set_options,
+                    id="artwork-set-filter",
+                    name="set_code",
+                ),
+                cls="explorer-set-field",
+            ),
+            id="artwork-search-form",
+            cls="explorer-search-panel",
+            role="search",
+        ),
+        Div(
+            P("Search for an artwork.", cls="explorer-empty"),
+            id="explorer-detail",
+            cls="explorer-detail",
+            aria_live="polite",
+        ),
+        Div(
+            id="explorer-results",
+            cls="explorer-results",
+            aria_live="polite",
+        ),
+        id="explorer-view",
+        cls="explorer-view",
+        role="tabpanel",
+        hidden=True,
+    )
+
+
 @rt("/")
 def get():
     initial_results = artwork_results(75.0, 120.0, 1.0, ("magic",))
     return (
         Main(
+            _view_switcher(),
             Div(
                 Div(
                     Div(
-                        Canvas(
-                            id="color-wheel",
-                            width="760",
-                            height="760",
-                            tabindex="0",
-                            aria_label=(
-                                "Continuous color wheel. Drag either edge or the "
-                                "selected slice to move it one degree at a time"
+                        Div(
+                            Canvas(
+                                id="color-wheel",
+                                width="760",
+                                height="760",
+                                tabindex="0",
+                                aria_label=(
+                                    "Continuous color wheel. Drag either edge or the "
+                                    "selected slice to move it one degree at a time"
+                                ),
                             ),
-                        ),
-                        Button(
-                            Span(
-                                "DRAG SLICE TO MOVE",
-                                cls="wheel-action-label",
+                            Button(
+                                Span(
+                                    "DRAG SLICE TO MOVE",
+                                    cls="wheel-action-label",
+                                ),
+                                Strong("75°", id="hue-readout"),
+                                Span("orange — yellow", id="hue-range-name"),
+                                type="button",
+                                id="wheel-center",
+                                aria_label="Selected fixed hue range",
                             ),
-                            Strong("75°", id="hue-readout"),
-                            Span("orange — yellow", id="hue-range-name"),
-                            type="button",
-                            id="wheel-center",
-                            aria_label="Selected fixed hue range",
+                            cls="wheel-shell",
                         ),
-                        cls="wheel-shell",
+                        cls="wheel-column",
                     ),
-                    cls="wheel-column",
+                    cls="hero",
                 ),
-                cls="hero",
+                _control_panel(),
+                Div(
+                    Span(cls="custom-loading-spinner", aria_hidden="true"),
+                    Span(id="custom-loading-message"),
+                    id="custom-loading-status",
+                    cls="custom-loading-status",
+                    role="status",
+                    aria_live="polite",
+                    aria_atomic="true",
+                    hidden=True,
+                ),
+                Div(
+                    *initial_results,
+                    id="art-results",
+                    cls="results-section",
+                    aria_live="polite",
+                ),
+                id="palette-view",
+                role="tabpanel",
             ),
-            _control_panel(),
-            Div(
-                Span(cls="custom-loading-spinner", aria_hidden="true"),
-                Span(id="custom-loading-message"),
-                id="custom-loading-status",
-                cls="custom-loading-status",
-                role="status",
-                aria_live="polite",
-                aria_atomic="true",
-                hidden=True,
-            ),
-            Div(*initial_results, id="art-results", cls="results-section", aria_live="polite"),
+            _explorer_view(),
             cls="page-main",
         ),
         Footer(
@@ -536,6 +780,28 @@ def get():
             cls="site-footer",
         ),
     )
+
+
+@rt("/explore/search")
+def get(
+    q: str = "",
+    set_code: str = "",
+):
+    safe_query = " ".join(q.strip().split())[:120]
+    safe_set_code = set_code.strip().lower()[:24]
+    if len(safe_query) < 2 and not safe_set_code:
+        return P("Search for an artwork.", cls="explorer-empty")
+    artworks = _cached_explorer_search(safe_query.lower(), safe_set_code)
+    return _explorer_search_results(artworks)
+
+
+@rt("/explore/artwork")
+def get(id: str = ""):
+    safe_id = id.strip()[:100]
+    artwork = repository.artwork_by_id(safe_id)
+    if artwork is None:
+        return P("Artwork not found.", cls="explorer-empty")
+    return _explorer_artwork_detail(artwork)
 
 
 @rt("/artworks")

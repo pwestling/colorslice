@@ -20,7 +20,13 @@ from colorslice.color import (
     slice_presence,
     slices_breadth,
 )
-from colorslice.models import Artwork, ArtworkMatch, ArtworkRecord, HUE_BIN_COUNT
+from colorslice.models import (
+    Artwork,
+    ArtworkMatch,
+    ArtworkRecord,
+    ArtworkSet,
+    HUE_BIN_COUNT,
+)
 
 
 CATALOG_PROFILE_VERSION = 2
@@ -52,6 +58,17 @@ CREATE TABLE IF NOT EXISTS artworks (
 );
 CREATE INDEX IF NOT EXISTS artworks_source_idx ON artworks(source);
 CREATE INDEX IF NOT EXISTS artworks_hue_idx ON artworks(dominant_hue);
+CREATE INDEX IF NOT EXISTS artworks_title_idx ON artworks(title);
+CREATE TABLE IF NOT EXISTS artwork_sets (
+    artwork_id TEXT NOT NULL,
+    set_code TEXT NOT NULL,
+    set_name TEXT NOT NULL,
+    released_at TEXT,
+    PRIMARY KEY (artwork_id, set_code),
+    FOREIGN KEY (artwork_id) REFERENCES artworks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS artwork_sets_code_idx ON artwork_sets(set_code);
+CREATE INDEX IF NOT EXISTS artwork_sets_artwork_idx ON artwork_sets(artwork_id);
 CREATE TABLE IF NOT EXISTS catalog_metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -81,6 +98,16 @@ CREATE TABLE IF NOT EXISTS artworks (
 );
 CREATE INDEX IF NOT EXISTS artworks_source_idx ON artworks(source);
 CREATE INDEX IF NOT EXISTS artworks_hue_idx ON artworks(dominant_hue);
+CREATE INDEX IF NOT EXISTS artworks_title_idx ON artworks(title);
+CREATE TABLE IF NOT EXISTS artwork_sets (
+    artwork_id TEXT NOT NULL REFERENCES artworks(id) ON DELETE CASCADE,
+    set_code TEXT NOT NULL,
+    set_name TEXT NOT NULL,
+    released_at DATE,
+    PRIMARY KEY (artwork_id, set_code)
+);
+CREATE INDEX IF NOT EXISTS artwork_sets_code_idx ON artwork_sets(set_code);
+CREATE INDEX IF NOT EXISTS artwork_sets_artwork_idx ON artwork_sets(artwork_id);
 CREATE TABLE IF NOT EXISTS catalog_metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -409,6 +436,198 @@ class ArtworkRepository:
                 """
             ).fetchall()
         return [Artwork.from_mapping(dict(row)) for row in rows]
+
+    def artwork_by_id(self, artwork_id: str) -> Artwork | None:
+        placeholder = "%s" if self.is_postgres else "?"
+        with self._connection() as connection:
+            row = connection.execute(
+                f"""
+                SELECT id, source, source_id, title, artist, year, image_url,
+                       thumbnail_url, source_url, license_label, hue_histogram,
+                       area_hue_histogram, dominant_hue, colorfulness
+                FROM artworks
+                WHERE id = {placeholder} AND source = 'magic'
+                """,
+                (artwork_id,),
+            ).fetchone()
+        return Artwork.from_mapping(dict(row)) if row is not None else None
+
+    def search_artworks(
+        self,
+        query: str,
+        set_code: str = "",
+        limit: int = 32,
+    ) -> list[Artwork]:
+        normalized_query = " ".join(query.lower().split())
+        normalized_set = set_code.lower().strip()
+        if not normalized_query and not normalized_set:
+            return []
+
+        placeholder = "%s" if self.is_postgres else "?"
+        conditions = ["a.source = 'magic'"]
+        parameters: list[Any] = []
+        if normalized_query:
+            escaped_query = (
+                normalized_query
+                .replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_")
+            )
+            conditions.append(
+                f"(LOWER(a.title) LIKE {placeholder} ESCAPE '!' "
+                f"OR LOWER(a.artist) LIKE {placeholder} ESCAPE '!')"
+            )
+            contains = f"%{escaped_query}%"
+            parameters.extend((contains, contains))
+        if normalized_set:
+            conditions.append(
+                f"""EXISTS (
+                    SELECT 1 FROM artwork_sets search_sets
+                    WHERE search_sets.artwork_id = a.id
+                      AND search_sets.set_code = {placeholder}
+                )"""
+            )
+            parameters.append(normalized_set)
+
+        if normalized_query:
+            ordering = f"""
+                CASE
+                    WHEN LOWER(a.title) = {placeholder} THEN 0
+                    WHEN LOWER(a.title) LIKE {placeholder} ESCAPE '!' THEN 1
+                    WHEN LOWER(a.title) LIKE {placeholder} ESCAPE '!' THEN 2
+                    ELSE 3
+                END,
+                a.title, a.year DESC, a.id
+            """
+            parameters.extend(
+                (
+                    normalized_query,
+                    f"{escaped_query}%",
+                    f"%{escaped_query}%",
+                )
+            )
+        else:
+            ordering = "a.year DESC, a.title, a.id"
+
+        parameters.append(max(1, min(100, limit)))
+        with self._connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT a.id, a.source, a.source_id, a.title, a.artist, a.year,
+                       a.image_url, a.thumbnail_url, a.source_url,
+                       a.license_label, a.hue_histogram,
+                       a.area_hue_histogram, a.dominant_hue, a.colorfulness
+                FROM artworks a
+                WHERE {' AND '.join(conditions)}
+                ORDER BY {ordering}
+                LIMIT {placeholder}
+                """,
+                parameters,
+            ).fetchall()
+        return [Artwork.from_mapping(dict(row)) for row in rows]
+
+    def artwork_sets(
+        self,
+        artwork_ids: tuple[str, ...],
+    ) -> dict[str, tuple[ArtworkSet, ...]]:
+        if not artwork_ids:
+            return {}
+        placeholder = "%s" if self.is_postgres else "?"
+        placeholders = ", ".join(placeholder for _ in artwork_ids)
+        with self._connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT artwork_id, set_code, set_name, released_at
+                FROM artwork_sets
+                WHERE artwork_id IN ({placeholders})
+                ORDER BY released_at DESC, set_name, set_code
+                """,
+                artwork_ids,
+            ).fetchall()
+        grouped: dict[str, list[ArtworkSet]] = {}
+        for row in rows:
+            values = dict(row)
+            artwork_id = str(values["artwork_id"])
+            grouped.setdefault(artwork_id, []).append(
+                ArtworkSet.from_mapping(values)
+            )
+        return {
+            artwork_id: tuple(sets)
+            for artwork_id, sets in grouped.items()
+        }
+
+    def available_sets(self) -> tuple[ArtworkSet, ...]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT set_code, MAX(set_name) AS set_name,
+                       MAX(released_at) AS released_at
+                FROM artwork_sets
+                GROUP BY set_code
+                ORDER BY LOWER(MAX(set_name)), set_code
+                """
+            ).fetchall()
+        return tuple(ArtworkSet.from_mapping(dict(row)) for row in rows)
+
+    def artwork_metadata_keys(self) -> list[tuple[str, str, str]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, source_id, image_url
+                FROM artworks
+                WHERE source = 'magic'
+                """
+            ).fetchall()
+        return [
+            (
+                str(dict(row)["id"]),
+                str(dict(row)["source_id"]),
+                str(dict(row)["image_url"]),
+            )
+            for row in rows
+        ]
+
+    def upsert_artwork_sets(
+        self,
+        entries: list[tuple[str, str, str, str | None]],
+    ) -> int:
+        if not entries:
+            return 0
+        values = [
+            (
+                artwork_id,
+                set_code.lower(),
+                set_name,
+                released_at,
+            )
+            for artwork_id, set_code, set_name, released_at in entries
+        ]
+        with self._connection() as connection:
+            if self.is_postgres:
+                query = """
+                    INSERT INTO artwork_sets (
+                        artwork_id, set_code, set_name, released_at
+                    ) VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (artwork_id, set_code) DO UPDATE SET
+                        set_name = EXCLUDED.set_name,
+                        released_at = EXCLUDED.released_at
+                """
+                with connection.cursor() as cursor:
+                    cursor.executemany(query, values)
+            else:
+                connection.executemany(
+                    """
+                    INSERT INTO artwork_sets (
+                        artwork_id, set_code, set_name, released_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(artwork_id, set_code) DO UPDATE SET
+                        set_name = excluded.set_name,
+                        released_at = excluded.released_at
+                    """,
+                    values,
+                )
+            connection.commit()
+        return len(values)
 
     def existing_record_source_ids(
         self,

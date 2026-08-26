@@ -1,7 +1,9 @@
 # Colorslice
 
 Colorslice finds Magic: The Gathering artwork whose colors fit inside a
-selected region of a perceptual color wheel.
+selected region of a perceptual color wheel. It can also search the indexed
+illustrations by card name, artist, or set and display their circular hue
+profiles.
 
 ## Develop locally
 
@@ -29,6 +31,16 @@ display artwork.
 The balanced Magic importer allocates additions to the least-represented
 five-year release eras, then balances within each era by year. It excludes card
 titles already in the catalog so repeated staples do not crowd out broader art.
+
+After importing illustrations, attach every indexed artwork to all of the sets
+in which that illustration appeared:
+
+```bash
+uv run python -m scripts.backfill_magic_sets \
+  --bulk-file data/downloads/default-cards.jsonl.gz
+```
+
+This metadata-only pass does not download or re-analyze artwork.
 
 ## Deploy
 

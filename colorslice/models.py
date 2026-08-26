@@ -64,6 +64,24 @@ class Artwork:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtworkSet:
+    code: str
+    name: str
+    released_at: str | None
+
+    @classmethod
+    def from_mapping(cls, row: dict[str, object]) -> Self:
+        raw_released_at = row["released_at"]
+        return cls(
+            code=str(row["set_code"]),
+            name=str(row["set_name"]),
+            released_at=(
+                str(raw_released_at) if raw_released_at is not None else None
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ArtworkRecord:
     source: str
     source_id: str

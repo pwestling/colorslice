@@ -34,6 +34,21 @@ def record(source_id, title):
     )
 
 
+def magic_record(source_id, title, artist="A painter"):
+    return ArtworkRecord(
+        source="magic",
+        source_id=source_id,
+        title=title,
+        artist=artist,
+        year=2000,
+        image_url=f"https://example.com/{source_id}.jpg",
+        thumbnail_url=f"https://example.com/{source_id}.jpg",
+        analysis_url=f"https://example.com/{source_id}.jpg",
+        source_url=f"https://scryfall.com/card/tst/1/{source_id}",
+        license_label="© Wizards of the Coast",
+    )
+
+
 def test_repository_ranks_and_filters_by_slice(tmp_path, monkeypatch):
     database_path = tmp_path / "test.db"
     monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
@@ -330,3 +345,55 @@ def test_repository_deletes_an_artwork_source(tmp_path, monkeypatch):
 
     assert removed == 1
     assert repository.count() == 0
+
+
+def test_repository_searches_artworks_and_filters_by_every_printed_set(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "explorer.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    histogram = histogram_at(6)
+    repository.upsert(
+        magic_record("first", "Lightning Bolt", "Christopher Rush"),
+        histogram,
+        histogram,
+        32.5,
+        0.8,
+    )
+    repository.upsert(
+        magic_record("second", "Lightning Bolt", "John Avon"),
+        histogram,
+        histogram,
+        32.5,
+        0.8,
+    )
+    repository.upsert_artwork_sets(
+        [
+            ("magic:first", "lea", "Limited Edition Alpha", "1993-08-05"),
+            ("magic:first", "4ed", "Fourth Edition", "1995-04-01"),
+            ("magic:second", "m10", "Magic 2010", "2009-07-17"),
+        ]
+    )
+
+    alpha_results = repository.search_artworks("lightning", "lea")
+    artist_results = repository.search_artworks("john avon")
+    wildcard_results = repository.search_artworks("%")
+    sets = repository.artwork_sets(("magic:first", "magic:second"))
+
+    assert [artwork.id for artwork in alpha_results] == ["magic:first"]
+    assert [artwork.id for artwork in artist_results] == ["magic:second"]
+    assert wildcard_results == []
+    assert [artwork_set.code for artwork_set in sets["magic:first"]] == [
+        "4ed",
+        "lea",
+    ]
+    assert [artwork_set.code for artwork_set in repository.available_sets()] == [
+        "4ed",
+        "lea",
+        "m10",
+    ]
+    assert repository.artwork_by_id("magic:first").title == "Lightning Bolt"
+    assert repository.artwork_by_id("met:first") is None
