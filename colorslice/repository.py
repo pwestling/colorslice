@@ -527,6 +527,37 @@ class ArtworkRepository:
             ).fetchall()
         return [Artwork.from_mapping(dict(row)) for row in rows]
 
+    def random_artwork(self, set_code: str = "") -> Artwork | None:
+        normalized_set = set_code.lower().strip()
+        placeholder = "%s" if self.is_postgres else "?"
+        conditions = ["a.source = 'magic'"]
+        parameters: list[Any] = []
+        if normalized_set:
+            conditions.append(
+                f"""EXISTS (
+                    SELECT 1 FROM artwork_sets random_sets
+                    WHERE random_sets.artwork_id = a.id
+                      AND random_sets.set_code = {placeholder}
+                )"""
+            )
+            parameters.append(normalized_set)
+
+        with self._connection() as connection:
+            row = connection.execute(
+                f"""
+                SELECT a.id, a.source, a.source_id, a.title, a.artist, a.year,
+                       a.image_url, a.thumbnail_url, a.source_url,
+                       a.license_label, a.hue_histogram,
+                       a.area_hue_histogram, a.dominant_hue, a.colorfulness
+                FROM artworks a
+                WHERE {' AND '.join(conditions)}
+                ORDER BY RANDOM()
+                LIMIT 1
+                """,
+                parameters,
+            ).fetchone()
+        return Artwork.from_mapping(dict(row)) if row is not None else None
+
     def artwork_sets(
         self,
         artwork_ids: tuple[str, ...],

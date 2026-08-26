@@ -695,6 +695,12 @@ def _explorer_view():
                 ),
                 cls="explorer-set-field",
             ),
+            Button(
+                "Random artwork",
+                type="button",
+                id="random-artwork",
+                cls="random-artwork-button",
+            ),
             id="artwork-search-form",
             cls="explorer-search-panel",
             role="search",
@@ -807,6 +813,15 @@ def get(id: str = ""):
     if artwork is None:
         return P("Artwork not found.", cls="explorer-empty")
     return _explorer_artwork_detail(artwork)
+
+
+@rt("/explore/random")
+def get(set_code: str = ""):
+    safe_set_code = set_code.strip().lower()[:24]
+    artwork = repository.random_artwork(safe_set_code)
+    if artwork is None:
+        return JSONResponse({"error": "No artwork found."}, status_code=404)
+    return JSONResponse({"id": artwork.id})
 
 
 @rt("/artworks")

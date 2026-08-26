@@ -68,6 +68,8 @@ def test_home_page_contains_palette_controls():
     assert 'id="custom-section-list"' not in response.text
     assert 'id="remove-custom-section"' not in response.text
     assert 'class="wordmark"' not in response.text
+    assert 'id="random-artwork"' in response.text
+    assert "Random artwork" in response.text
     assert 'data-view="palette"' in response.text
     assert 'data-view="art"' in response.text
     assert "By color" in response.text
@@ -306,6 +308,32 @@ def test_explorer_search_and_detail_endpoints(monkeypatch):
     assert 'data-histogram="' in detail.text
     assert "Chroma-weighted" in detail.text
     assert "View on Scryfall" in detail.text
+
+
+def test_explorer_random_endpoint_respects_set_filter(monkeypatch):
+    artwork = repository.all_artworks()[0]
+    requests = []
+
+    def random_artwork(set_code):
+        requests.append(set_code)
+        return artwork
+
+    monkeypatch.setattr(repository, "random_artwork", random_artwork)
+
+    response = client.get("/explore/random?set_code=LEA")
+
+    assert response.status_code == 200
+    assert response.json() == {"id": artwork.id}
+    assert requests == ["lea"]
+
+
+def test_explorer_random_endpoint_reports_empty_set(monkeypatch):
+    monkeypatch.setattr(repository, "random_artwork", lambda set_code: None)
+
+    response = client.get("/explore/random?set_code=missing")
+
+    assert response.status_code == 404
+    assert response.json() == {"error": "No artwork found."}
 
 
 def test_explorer_requires_a_query_unless_a_set_is_selected(monkeypatch):

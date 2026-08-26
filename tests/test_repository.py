@@ -402,6 +402,41 @@ def test_repository_searches_artworks_and_filters_by_every_printed_set(
     assert repository.artwork_by_id("met:first") is None
 
 
+def test_repository_chooses_random_artwork_with_optional_set_filter(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "random-explorer.db"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    histogram = histogram_at(6)
+    repository.upsert(
+        magic_record("alpha", "Alpha artwork"),
+        histogram,
+        histogram,
+        32.5,
+        0.8,
+    )
+    repository.upsert(
+        magic_record("modern", "Modern artwork"),
+        histogram,
+        histogram,
+        32.5,
+        0.8,
+    )
+    repository.upsert_artwork_sets(
+        [
+            ("magic:alpha", "lea", "Limited Edition Alpha", "1993-08-05"),
+            ("magic:modern", "m10", "Magic 2010", "2009-07-17"),
+        ]
+    )
+
+    assert repository.random_artwork("LEA").id == "magic:alpha"
+    assert repository.random_artwork("missing") is None
+    assert repository.random_artwork().id in {"magic:alpha", "magic:modern"}
+
+
 def test_repository_seeds_only_existing_artwork_sets_from_bundle(
     tmp_path,
     monkeypatch,

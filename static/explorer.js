@@ -74,6 +74,7 @@
     const form = document.querySelector("#artwork-search-form");
     const input = document.querySelector("#artwork-search-input");
     const setFilter = document.querySelector("#artwork-set-filter");
+    const randomButton = document.querySelector("#random-artwork");
     const results = document.querySelector("#explorer-results");
     const detail = document.querySelector("#explorer-detail");
     if (
@@ -82,6 +83,7 @@
       || !form
       || !input
       || !setFilter
+      || !randomButton
       || !results
       || !detail
     ) return;
@@ -234,6 +236,29 @@
     });
     input.addEventListener("input", queueSearch);
     setFilter.addEventListener("change", () => void runSearch());
+    randomButton.addEventListener("click", async () => {
+      const originalLabel = randomButton.textContent;
+      randomButton.disabled = true;
+      randomButton.textContent = "Choosing…";
+      input.value = "";
+      results.innerHTML = "";
+      searchUrlState(true);
+      try {
+        const params = new URLSearchParams({ set_code: setFilter.value });
+        const response = await fetch(`/explore/random?${params}`, {
+          headers: { "HX-Request": "true" },
+        });
+        if (!response.ok) throw new Error(`Random artwork request failed: ${response.status}`);
+        const artwork = await response.json();
+        await loadArtwork(artwork.id);
+      } catch (error) {
+        console.error(error);
+        detail.innerHTML = '<p class="explorer-empty">No artwork found.</p>';
+      } finally {
+        randomButton.disabled = false;
+        randomButton.textContent = originalLabel;
+      }
+    });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       void runSearch();
