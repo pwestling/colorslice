@@ -78,6 +78,10 @@ def test_home_page_contains_palette_controls():
     assert 'id="artwork-set-filter"' in response.text
     assert 'id="explorer-detail"' in response.text
     assert "/static/explorer.js" in response.text
+    assert 'class="art-card"' in response.text
+    assert 'data-artwork-id="magic:' in response.text
+    assert 'href="/?view=art&amp;art=magic:' in response.text
+    assert "View hue profile for" in response.text
 
 
 def test_artwork_endpoint_supports_high_match_thresholds():

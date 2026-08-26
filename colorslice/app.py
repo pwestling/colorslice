@@ -165,11 +165,10 @@ def _artwork_card(match: ArtworkMatch, precise_coverage: bool = False):
             Small(artwork.license_label),
             cls="art-card-copy",
         ),
-        href=artwork.source_url,
-        target="_blank",
-        rel="noreferrer",
+        href=f"/?view=art&art={artwork.id}",
         cls="art-card",
-        aria_label=f"View {artwork.title} by {artist} at its source",
+        data_artwork_id=artwork.id,
+        aria_label=f"View hue profile for {artwork.title} by {artist}",
     )
 
 

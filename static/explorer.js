@@ -267,6 +267,23 @@
       const button = event.target.closest(".explorer-result");
       if (button) void loadArtwork(button.dataset.artworkId, { scroll: true });
     });
+    paletteView.addEventListener("click", (event) => {
+      const card = event.target.closest(".art-card[data-artwork-id]");
+      if (
+        !card
+        || event.button !== 0
+        || event.metaKey
+        || event.ctrlKey
+        || event.shiftKey
+        || event.altKey
+      ) return;
+      event.preventDefault();
+      input.value = "";
+      setFilter.value = "";
+      results.innerHTML = "";
+      showView("art");
+      void loadArtwork(card.dataset.artworkId, { scroll: true });
+    });
 
     const params = new URLSearchParams(window.location.search);
     const initialView = (
