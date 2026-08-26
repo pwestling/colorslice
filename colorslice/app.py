@@ -631,12 +631,21 @@ def _explorer_artwork_detail(artwork: Artwork):
                 H2(artwork.title),
                 P(f"{artist}{year}"),
                 _set_chips(sets),
-                A(
-                    "View on Scryfall",
-                    href=artwork.source_url,
-                    target="_blank",
-                    rel="noreferrer",
-                    cls="artwork-source-link",
+                Div(
+                    Button(
+                        "Hue mode",
+                        type="button",
+                        cls="hue-mode-toggle",
+                        aria_pressed="false",
+                    ),
+                    A(
+                        "View on Scryfall",
+                        href=artwork.source_url,
+                        target="_blank",
+                        rel="noreferrer",
+                        cls="artwork-source-link",
+                    ),
+                    cls="artwork-actions",
                 ),
                 cls="explorer-artwork-copy",
             ),

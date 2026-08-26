@@ -267,6 +267,16 @@
       const button = event.target.closest(".explorer-result");
       if (button) void loadArtwork(button.dataset.artworkId, { scroll: true });
     });
+    detail.addEventListener("click", (event) => {
+      const button = event.target.closest(".hue-mode-toggle");
+      if (!button) return;
+      const image = detail.querySelector(".explorer-artwork-image");
+      if (!image) return;
+      const active = image.classList.toggle("hue-mode");
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+      button.textContent = active ? "Original" : "Hue mode";
+    });
     paletteView.addEventListener("click", (event) => {
       const card = event.target.closest(".art-card[data-artwork-id]");
       if (

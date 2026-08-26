@@ -312,6 +312,9 @@ def test_explorer_search_and_detail_endpoints(monkeypatch):
     assert 'data-histogram="' in detail.text
     assert "Chroma-weighted" in detail.text
     assert "View on Scryfall" in detail.text
+    assert 'class="hue-mode-toggle"' in detail.text
+    assert 'aria-pressed="false"' in detail.text
+    assert "Hue mode" in detail.text
 
 
 def test_explorer_random_endpoint_respects_set_filter(monkeypatch):

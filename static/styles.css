@@ -609,7 +609,10 @@ a { color: inherit; }
   object-fit: cover;
   background: var(--paper-deep);
   border-radius: 15px;
+  transition: filter 180ms ease;
 }
+
+.explorer-artwork-image.hue-mode { filter: saturate(4); }
 
 .explorer-artwork-copy { padding: 20px 3px 0; }
 
@@ -645,6 +648,28 @@ a { color: inherit; }
 }
 
 .artwork-set-more { color: var(--muted); }
+
+.artwork-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hue-mode-toggle {
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--panel-selected);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hue-mode-toggle:hover,
+.hue-mode-toggle:focus-visible { border-color: var(--ink); }
+.hue-mode-toggle.active { background: var(--acid); border-color: var(--acid); color: var(--acid-ink); }
 
 .artwork-source-link {
   color: var(--ink);
