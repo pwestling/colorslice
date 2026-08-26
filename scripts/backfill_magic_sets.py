@@ -15,6 +15,7 @@ def parse_args():
     )
     parser.add_argument("--bulk-file", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=5_000)
+    parser.add_argument("--export-bundle", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     return parser.parse_args()
@@ -41,6 +42,7 @@ def _faces(card: dict[str, object]) -> tuple[dict[str, object], ...]:
 def collect_artwork_set_links(
     bulk_file: Path,
     metadata_keys: list[tuple[str, str, str]],
+    include_unindexed_illustrations: bool = False,
 ) -> list[tuple[str, str, str, str | None]]:
     artwork_ids = {artwork_id for artwork_id, _, _ in metadata_keys}
     source_ids = {
@@ -51,11 +53,12 @@ def collect_artwork_set_links(
         _image_key(image_url): artwork_id
         for artwork_id, _, image_url in metadata_keys
     }
-    illustration_artworks = {
-        source_id.removeprefix("illustration:"): artwork_id
-        for artwork_id, source_id, _ in metadata_keys
-        if source_id.startswith("illustration:")
-    }
+    illustration_artworks: dict[str, set[str]] = defaultdict(set)
+    for artwork_id, source_id, _ in metadata_keys:
+        if source_id.startswith("illustration:"):
+            illustration_artworks[
+                source_id.removeprefix("illustration:")
+            ].add(artwork_id)
     illustration_sets: dict[
         str,
         set[tuple[str, str, str | None]],
@@ -82,25 +85,17 @@ def collect_artwork_set_links(
                     (set_code, set_name, released_at)
                 )
                 direct_id = f"magic:illustration:{illustration_id}"
-                if direct_id in artwork_ids:
-                    illustration_artworks[illustration_id] = direct_id
-                    continue
+                if direct_id in artwork_ids or include_unindexed_illustrations:
+                    illustration_artworks[illustration_id].add(direct_id)
                 if card_artwork_id is not None:
-                    illustration_artworks.setdefault(
-                        illustration_id,
-                        card_artwork_id,
-                    )
-                    continue
+                    illustration_artworks[illustration_id].add(card_artwork_id)
                 image_uris = face.get("image_uris")
                 if not isinstance(image_uris, dict):
                     continue
                 art_crop = _string(image_uris.get("art_crop"))
                 image_artwork_id = image_urls.get(_image_key(art_crop))
                 if image_artwork_id is not None:
-                    illustration_artworks.setdefault(
-                        illustration_id,
-                        image_artwork_id,
-                    )
+                    illustration_artworks[illustration_id].add(image_artwork_id)
 
     return sorted(
         (
@@ -109,9 +104,20 @@ def collect_artwork_set_links(
             set_name,
             released_at,
         )
-        for illustration_id, artwork_id in illustration_artworks.items()
+        for illustration_id, artwork_ids_for_illustration in illustration_artworks.items()
+        for artwork_id in artwork_ids_for_illustration
         for set_code, set_name, released_at in illustration_sets[illustration_id]
     )
+
+
+def export_bundle(
+    path: Path,
+    links: list[tuple[str, str, str, str | None]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", encoding="utf-8", compresslevel=9) as stream:
+        for link in links:
+            stream.write(json.dumps(link, separators=(",", ":")) + "\n")
 
 
 def main():
@@ -130,6 +136,17 @@ def main():
         f"Resolved {len(links):,} artwork/set links for "
         f"{linked_artworks:,} of {len(metadata_keys):,} Magic artworks."
     )
+    if args.export_bundle is not None:
+        bundle_links = collect_artwork_set_links(
+            args.bulk_file,
+            metadata_keys,
+            include_unindexed_illustrations=True,
+        )
+        export_bundle(args.export_bundle, bundle_links)
+        print(
+            f"Exported {len(bundle_links):,} candidate artwork/set links to "
+            f"{args.export_bundle}."
+        )
     if args.dry_run:
         return
 

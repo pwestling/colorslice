@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from contextlib import contextmanager
+import gzip
 import json
 import os
 from pathlib import Path
@@ -569,6 +570,13 @@ class ArtworkRepository:
             ).fetchall()
         return tuple(ArtworkSet.from_mapping(dict(row)) for row in rows)
 
+    def artwork_set_count(self) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM artwork_sets"
+            ).fetchone()
+        return int(dict(row)["count"]) if row is not None else 0
+
     def artwork_metadata_keys(self) -> list[tuple[str, str, str]]:
         with self._connection() as connection:
             rows = connection.execute(
@@ -628,6 +636,78 @@ class ArtworkRepository:
                 )
             connection.commit()
         return len(values)
+
+    def upsert_existing_artwork_sets(
+        self,
+        entries: list[tuple[str, str, str, str | None]],
+    ) -> tuple[int, int]:
+        if not entries:
+            return 0, 0
+        candidate_ids = sorted({artwork_id for artwork_id, _, _, _ in entries})
+        placeholder = "%s" if self.is_postgres else "?"
+        lookup_batch_size = 5_000 if self.is_postgres else 500
+        existing_ids: set[str] = set()
+
+        with self._connection() as connection:
+            for start in range(0, len(candidate_ids), lookup_batch_size):
+                batch = candidate_ids[start:start + lookup_batch_size]
+                placeholders = ", ".join(placeholder for _ in batch)
+                rows = connection.execute(
+                    f"SELECT id FROM artworks WHERE id IN ({placeholders})",
+                    batch,
+                ).fetchall()
+                existing_ids.update(str(dict(row)["id"]) for row in rows)
+
+            values = [
+                (artwork_id, set_code.lower(), set_name, released_at)
+                for artwork_id, set_code, set_name, released_at in entries
+                if artwork_id in existing_ids
+            ]
+            if self.is_postgres and values:
+                query = """
+                    INSERT INTO artwork_sets (
+                        artwork_id, set_code, set_name, released_at
+                    ) VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (artwork_id, set_code) DO UPDATE SET
+                        set_name = EXCLUDED.set_name,
+                        released_at = EXCLUDED.released_at
+                """
+                with connection.cursor() as cursor:
+                    cursor.executemany(query, values)
+            elif values:
+                connection.executemany(
+                    """
+                    INSERT INTO artwork_sets (
+                        artwork_id, set_code, set_name, released_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(artwork_id, set_code) DO UPDATE SET
+                        set_name = excluded.set_name,
+                        released_at = excluded.released_at
+                    """,
+                    values,
+                )
+            connection.commit()
+        return len(values), len(existing_ids)
+
+    def seed_artwork_sets_from_bundle(self, path: Path) -> tuple[int, int]:
+        if not path.exists():
+            raise FileNotFoundError(path)
+        entries = []
+        with gzip.open(path, "rt", encoding="utf-8") as stream:
+            for line in stream:
+                raw_entry = json.loads(line)
+                if not isinstance(raw_entry, list) or len(raw_entry) != 4:
+                    continue
+                artwork_id, set_code, set_name, released_at = raw_entry
+                if not all(
+                    isinstance(value, str)
+                    for value in (artwork_id, set_code, set_name)
+                ):
+                    continue
+                if released_at is not None and not isinstance(released_at, str):
+                    continue
+                entries.append((artwork_id, set_code, set_name, released_at))
+        return self.upsert_existing_artwork_sets(entries)
 
     def existing_record_source_ids(
         self,

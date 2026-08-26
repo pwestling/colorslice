@@ -42,6 +42,12 @@ uv run python -m scripts.backfill_magic_sets \
 
 This metadata-only pass does not download or re-analyze artwork.
 
+To refresh the compressed set catalog bundled with deployments, add:
+
+```bash
+--export-bundle data/magic-artwork-sets.jsonl.gz
+```
+
 ## Deploy
 
 The root `main.py` exposes the ASGI app expected by Vercel. With `DATABASE_URL`,

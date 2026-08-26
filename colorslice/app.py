@@ -47,6 +47,9 @@ STATIC_VERSION = sha256(
     + (STATIC_DIR / "explorer.js").read_bytes()
 ).hexdigest()[:12]
 SEED_DATABASE = Path(__file__).resolve().parent.parent / "data/seed.db"
+SET_METADATA_BUNDLE = (
+    Path(__file__).resolve().parent.parent / "data/magic-artwork-sets.jsonl.gz"
+)
 RESULT_LIMIT = 10_000
 INITIAL_RESULT_LIMIT = 24
 RESULT_PAGE_SIZE = 96
@@ -64,6 +67,8 @@ if repository.is_postgres:
         repository.seed_from_sqlite(SEED_DATABASE)
         repository.set_catalog_profile_version(CATALOG_PROFILE_VERSION)
 repository.delete_source("met")
+if repository.artwork_set_count() == 0 and SET_METADATA_BUNDLE.exists():
+    repository.seed_artwork_sets_from_bundle(SET_METADATA_BUNDLE)
 
 app, rt = fast_app(
     title="Colorslice — MTG art by palette",
@@ -907,5 +912,6 @@ def get():
             "status": "ok",
             "artworks": repository.count(),
             "database": "postgres" if repository.is_postgres else "sqlite",
+            "artwork_sets": repository.artwork_set_count(),
         }
     )

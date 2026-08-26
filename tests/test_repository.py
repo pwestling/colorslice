@@ -1,3 +1,6 @@
+import gzip
+import json
+
 import pytest
 
 from colorslice.models import ArtworkRecord
@@ -397,3 +400,42 @@ def test_repository_searches_artworks_and_filters_by_every_printed_set(
     ]
     assert repository.artwork_by_id("magic:first").title == "Lightning Bolt"
     assert repository.artwork_by_id("met:first") is None
+
+
+def test_repository_seeds_only_existing_artwork_sets_from_bundle(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "set-bundle.db"
+    bundle_path = tmp_path / "sets.jsonl.gz"
+    monkeypatch.setenv("COLORSLICE_DB_PATH", str(database_path))
+    repository = ArtworkRepository()
+    repository.initialize()
+    histogram = histogram_at(6)
+    repository.upsert(
+        magic_record("present", "Present Work"),
+        histogram,
+        histogram,
+        32.5,
+        0.8,
+    )
+    with gzip.open(bundle_path, "wt", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(
+                ["magic:present", "tst", "Test Set", "2000-01-01"]
+            )
+            + "\n"
+        )
+        stream.write(
+            json.dumps(
+                ["magic:absent", "tst", "Test Set", "2000-01-01"]
+            )
+            + "\n"
+        )
+
+    stored, matched_artworks = repository.seed_artwork_sets_from_bundle(
+        bundle_path
+    )
+
+    assert (stored, matched_artworks) == (1, 1)
+    assert repository.artwork_set_count() == 1
