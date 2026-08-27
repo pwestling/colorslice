@@ -602,16 +602,30 @@ a { color: inherit; }
 
 .explorer-artwork-pane { min-width: 0; }
 
-.explorer-artwork-image {
-  display: block;
+.explorer-artwork-stage {
+  position: relative;
   width: 100%;
   aspect-ratio: 1.17 / 1;
-  object-fit: cover;
   background: var(--paper-deep);
   border-radius: 15px;
+  overflow: hidden;
+}
+
+.explorer-artwork-image,
+.explorer-artwork-canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.explorer-artwork-image {
   transition: filter 180ms ease;
 }
 
+.explorer-artwork-canvas[hidden] { display: none; }
 .explorer-artwork-image.hue-mode { filter: saturate(4); }
 
 .explorer-artwork-copy { padding: 20px 3px 0; }
@@ -651,25 +665,36 @@ a { color: inherit; }
 
 .artwork-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
 }
 
-.hue-mode-toggle {
-  min-height: 34px;
-  padding: 0 12px;
-  color: var(--ink);
-  background: var(--panel-selected);
+.artwork-mode-selector {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--paper-deep);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
+}
+
+.artwork-view-mode {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
 
-.hue-mode-toggle:hover,
-.hue-mode-toggle:focus-visible { border-color: var(--ink); }
-.hue-mode-toggle.active { background: var(--acid); border-color: var(--acid); color: var(--acid-ink); }
+.artwork-view-mode:hover,
+.artwork-view-mode:focus-visible { background: var(--panel-selected); }
+.artwork-view-mode.active { background: var(--acid); color: var(--acid-ink); }
+.artwork-view-mode:disabled { cursor: wait; opacity: 0.7; }
 
 .artwork-source-link {
   color: var(--ink);

@@ -622,21 +622,51 @@ def _explorer_artwork_detail(artwork: Artwork):
     sets = repository.artwork_sets((artwork.id,)).get(artwork.id, ())
     return Div(
         Div(
-            Img(
-                src=artwork.image_url,
-                alt=f"{artwork.title} by {artist}",
-                cls="explorer-artwork-image",
+            Div(
+                Img(
+                    src=artwork.image_url,
+                    alt=f"{artwork.title} by {artist}",
+                    cls="explorer-artwork-image",
+                    crossorigin="anonymous",
+                ),
+                Canvas(
+                    cls="explorer-artwork-canvas",
+                    aria_label=f"Painterly view of {artwork.title} by {artist}",
+                    role="img",
+                    hidden=True,
+                ),
+                cls="explorer-artwork-stage",
             ),
             Div(
                 H2(artwork.title),
                 P(f"{artist}{year}"),
                 _set_chips(sets),
                 Div(
-                    Button(
-                        "Hue mode",
-                        type="button",
-                        cls="hue-mode-toggle",
-                        aria_pressed="false",
+                    Div(
+                        Button(
+                            "Original",
+                            type="button",
+                            cls="artwork-view-mode active",
+                            data_image_mode="original",
+                            aria_pressed="true",
+                        ),
+                        Button(
+                            "Hue",
+                            type="button",
+                            cls="artwork-view-mode",
+                            data_image_mode="hue",
+                            aria_pressed="false",
+                        ),
+                        Button(
+                            "Painterly",
+                            type="button",
+                            cls="artwork-view-mode",
+                            data_image_mode="painterly",
+                            aria_pressed="false",
+                        ),
+                        cls="artwork-mode-selector",
+                        role="group",
+                        aria_label="Artwork display mode",
                     ),
                     A(
                         "View on Scryfall",
