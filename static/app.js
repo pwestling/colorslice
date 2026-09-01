@@ -9,6 +9,35 @@ const WHEEL_DARK_END = 0.10;
 const WHEEL_VIVID_END = 0.70;
 const WHEEL_PEAK_SEARCH_STEPS = 100;
 
+// Approximate OKLCH positions sampled from GOLDEN Heavy Body Acrylic
+// 1:1 tint swatches, where transparent pigments reveal their undertones.
+const ARTIST_PIGMENTS = [
+  { name: "Cadmium red", code: "PR108", hue: 18.2, color: "#dd7479" },
+  { name: "Cadmium orange", code: "PO20", hue: 41.6, color: "#fc895c" },
+  { name: "Burnt sienna", code: "PBr7", hue: 54.9, color: "#c39373" },
+  { name: "Yellow ochre", code: "PY42", hue: 77.0, color: "#eec588" },
+  { name: "Cadmium yellow", code: "PY35", hue: 104.1, color: "#fcec32" },
+  {
+    name: "Chromium green", code: "PG17", hue: 145.6,
+    color: "#7bab7d", labelRadius: 55,
+  },
+  {
+    name: "Phthalo green", code: "PG7", hue: 156.6,
+    color: "#03a060", labelRadius: 63,
+  },
+  {
+    name: "Phthalo blue", code: "PB15:3", hue: 250.9,
+    color: "#0376ce", labelRadius: 63,
+  },
+  { name: "Cerulean", code: "PB36", hue: 257.6, color: "#81b0f4" },
+  {
+    name: "Ultramarine", code: "PB29", hue: 267.6,
+    color: "#577bea", labelRadius: 55,
+  },
+  { name: "Dioxazine purple", code: "PV23", hue: 297.7, color: "#634895" },
+  { name: "Quinacridone magenta", code: "PR122", hue: 342.4, color: "#d45cac" },
+];
+
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
 function linearToSrgb(value) {
@@ -708,6 +737,8 @@ function initializePalette() {
   const wheelActionLabel = document.querySelector(".wheel-action-label");
   const wheelCenter = document.querySelector("#wheel-center");
   const wheelShell = document.querySelector(".wheel-shell");
+  const pigmentGuide = document.querySelector("#pigment-guide");
+  const pigmentGuideToggle = document.querySelector("#pigment-guide-toggle");
   const customControls = document.querySelector("#custom-controls");
   const customAngle = document.querySelector("#custom-angle");
   const customPercent = document.querySelector("#custom-percent");
@@ -720,6 +751,52 @@ function initializePalette() {
   let resultGeneration = 0;
   const responseCache = new Map();
   const serverParams = new URLSearchParams(new FormData(form));
+
+  const pigmentMarkers = ARTIST_PIGMENTS.map((pigment) => {
+    const radians = (pigment.hue - 90) * Math.PI / 180;
+    const tick = document.createElement("span");
+    const label = document.createElement("span");
+    const swatch = document.createElement("span");
+    const name = document.createElement("span");
+    const code = document.createElement("small");
+    const tickRadius = 48.8;
+    const labelRadius = pigment.labelRadius || 59;
+
+    tick.className = "pigment-tick";
+    tick.style.left = `${50 + Math.cos(radians) * tickRadius}%`;
+    tick.style.top = `${50 + Math.sin(radians) * tickRadius}%`;
+    tick.style.setProperty("--pigment-color", pigment.color);
+
+    label.className = "pigment-label";
+    label.style.left = `${50 + Math.cos(radians) * labelRadius}%`;
+    label.style.top = `${50 + Math.sin(radians) * labelRadius}%`;
+    label.style.setProperty("--pigment-color", pigment.color);
+    label.title = `${pigment.name} · ${pigment.code} · approximately ${Math.round(
+      pigment.hue,
+    )}°`;
+
+    swatch.className = "pigment-swatch";
+    swatch.setAttribute("aria-hidden", "true");
+    name.textContent = pigment.name;
+    code.textContent = pigment.code;
+    label.append(swatch, name, code);
+    pigmentGuide.append(tick, label);
+    return { pigment, tick, label };
+  });
+
+  const updatePigmentGuide = (state) => {
+    const sections = state.mode === "custom"
+      ? state.sections
+      : [{ start: state.start, end: state.end }];
+    pigmentMarkers.forEach(({ pigment, tick, label }) => {
+      const selected = sections.some((section) => (
+        clockwiseSpan(section.start, pigment.hue)
+        <= clockwiseSpan(section.start, section.end)
+      ));
+      tick.classList.toggle("selected", selected);
+      label.classList.toggle("selected", selected);
+    });
+  };
 
   const fetchResults = async (url, signal) => {
     if (responseCache.has(url)) return responseCache.get(url);
@@ -873,6 +950,7 @@ function initializePalette() {
       }`;
       addCustomSection.disabled = state.sections.length >= 4 || state.totalSpan >= 359;
     }
+    updatePigmentGuide(state);
   };
 
   const loadResults = async ({ immediate = false } = {}) => {
@@ -970,6 +1048,13 @@ function initializePalette() {
   });
 
   addCustomSection.addEventListener("click", () => wheel.addSection());
+  pigmentGuideToggle.addEventListener("click", () => {
+    const visible = pigmentGuide.hidden;
+    pigmentGuide.hidden = !visible;
+    pigmentGuideToggle.classList.toggle("active", visible);
+    pigmentGuideToggle.setAttribute("aria-pressed", String(visible));
+    wheelShell.classList.toggle("show-pigments", visible);
+  });
   document.querySelector("#art-results").addEventListener("click", (event) => {
     const button = event.target.closest(".show-more-images");
     if (button) void appendRelaxedResults(button);

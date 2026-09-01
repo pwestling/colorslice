@@ -162,6 +162,83 @@ a { color: inherit; }
   aspect-ratio: 1;
 }
 
+.wheel-shell.show-pigments { margin-block: 50px; }
+
+.pigment-guide[hidden] { display: none; }
+
+.pigment-guide {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pigment-tick,
+.pigment-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.pigment-tick {
+  width: 9px;
+  height: 9px;
+  background: var(--pigment-color);
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--ink);
+  opacity: 0.46;
+}
+
+.pigment-label {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 5px;
+  min-height: 27px;
+  max-width: 132px;
+  padding: 5px 7px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--paper) 91%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px var(--panel-shadow);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.08;
+  white-space: nowrap;
+  backdrop-filter: blur(7px);
+}
+
+.pigment-label small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.pigment-swatch {
+  grid-row: 1 / span 2;
+  width: 8px;
+  height: 8px;
+  background: var(--pigment-color);
+  border: 1px solid rgb(0 0 0 / 25%);
+  border-radius: 50%;
+}
+
+.pigment-tick.selected { width: 11px; height: 11px; opacity: 1; }
+
+.pigment-label.selected {
+  z-index: 1;
+  color: var(--ink);
+  background: var(--panel-selected);
+  border-color: color-mix(in srgb, var(--ink) 34%, transparent);
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.04);
+}
+
 #color-wheel {
   display: block;
   width: 100%;
@@ -233,6 +310,40 @@ a { color: inherit; }
 .control-block {
   min-width: 0;
   padding: 24px 30px;
+}
+
+.pigment-control-block { border-top: 1px solid var(--line); }
+
+.pigment-guide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 13px;
+  padding: 8px 12px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pigment-guide-toggle:hover,
+.pigment-guide-toggle:focus-visible { border-color: var(--ink); }
+
+.pigment-guide-toggle.active {
+  color: var(--acid-ink);
+  background: var(--acid);
+  border-color: var(--acid);
+}
+
+.pigment-toggle-swatch {
+  width: 11px;
+  height: 11px;
+  background: conic-gradient(#f44336, #f7d51d, #17a663, #1688d4, #6949a8, #d93491, #f44336);
+  border: 1px solid rgb(0 0 0 / 28%);
+  border-radius: 50%;
 }
 
 .control-label { color: var(--muted); }
@@ -807,6 +918,9 @@ a { color: inherit; }
   .hero { min-height: 0; padding: 34px 0 28px; }
   .wheel-column { width: 100%; }
   .wheel-shell { width: min(92vw, 470px); }
+  .wheel-shell.show-pigments { width: min(64vw, 360px); margin-block: 34px; }
+  .pigment-label { max-width: 92px; padding: 4px 5px; font-size: 7.5px; white-space: normal; }
+  .pigment-label small { display: none; }
   #hue-readout { font-size: 48px; }
   .control-panel { margin-bottom: 64px; }
   .controls-inner { display: block; }

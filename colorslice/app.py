@@ -487,6 +487,19 @@ def _control_panel():
                 ),
                 cls="control-block",
             ),
+            Div(
+                P("REFERENCE", cls="control-label"),
+                Button(
+                    Span(cls="pigment-toggle-swatch", aria_hidden="true"),
+                    Span("Paint pigments"),
+                    type="button",
+                    id="pigment-guide-toggle",
+                    cls="pigment-guide-toggle",
+                    aria_pressed="false",
+                    aria_controls="pigment-guide",
+                ),
+                cls="control-block pigment-control-block",
+            ),
             cls="controls-inner",
         ),
         id="palette-controls",
@@ -750,6 +763,12 @@ def get():
                                     "Continuous color wheel. Drag either edge or the "
                                     "selected slice to move it one degree at a time"
                                 ),
+                            ),
+                            Div(
+                                id="pigment-guide",
+                                cls="pigment-guide",
+                                aria_hidden="true",
+                                hidden=True,
                             ),
                             Button(
                                 Span(

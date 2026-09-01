@@ -41,6 +41,10 @@ def test_home_page_contains_palette_controls():
     assert "DRAG SLICE TO MOVE" in response.text
     assert 'id="color-wheel"' in response.text
     assert "Continuous color wheel" in response.text
+    assert 'id="pigment-guide"' in response.text
+    assert 'id="pigment-guide-toggle"' in response.text
+    assert "Paint pigments" in response.text
+    assert 'aria-controls="pigment-guide"' in response.text
     assert "24-segment color wheel" not in response.text
     assert 'class="wheel-label' not in response.text
     assert "Magic" in response.text
