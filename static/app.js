@@ -9,34 +9,54 @@ const WHEEL_DARK_END = 0.10;
 const WHEEL_VIVID_END = 0.70;
 const WHEEL_PEAK_SEARCH_STEPS = 100;
 
-// Approximate OKLCH positions sampled from GOLDEN Heavy Body Acrylic
-// 1:1 tint swatches, where transparent pigments reveal their undertones.
+// Approximate OKLCH positions sampled from GOLDEN Heavy Body Acrylic 1:1 tint
+// swatches, where transparent paints reveal their undertones. Mixtures and hue
+// replacements are identified as such instead of being assigned one pigment.
+// Source: https://goldenartistcolors.com/products/golden-artist-acrylics/heavy-body/technical-chart
 const ARTIST_PIGMENTS = [
-  { name: "Cadmium red", code: "PR108", hue: 18.2, color: "#dd7479" },
+  { name: "Pyrrole red", code: "PR254", hue: 13.8, color: "#e75b71" },
+  { name: "Cadmium red medium", code: "PR108", hue: 18.2, color: "#dd7479" },
+  { name: "Red oxide", code: "PR101", hue: 24.0, color: "#a15a56" },
+  { name: "Pyrrole orange", code: "PO73", hue: 25.4, color: "#fe7b73" },
+  { name: "Cadmium red light", code: "PR108", hue: 26.4, color: "#fb756b" },
   { name: "Cadmium orange", code: "PO20", hue: 41.6, color: "#fc895c" },
   { name: "Burnt sienna", code: "PBr7", hue: 54.9, color: "#c39373" },
+  { name: "Burnt umber", code: "PBr7", hue: 59.6, color: "#8b7a6d" },
   { name: "Yellow ochre", code: "PY42", hue: 77.0, color: "#eec588" },
-  { name: "Cadmium yellow", code: "PY35", hue: 104.1, color: "#fcec32" },
-  {
-    name: "Chromium green", code: "PG17", hue: 145.6,
-    color: "#7bab7d", labelRadius: 55,
-  },
-  {
-    name: "Phthalo green", code: "PG7", hue: 156.6,
-    color: "#03a060", labelRadius: 63,
-  },
-  {
-    name: "Phthalo blue", code: "PB15:3", hue: 250.9,
-    color: "#0376ce", labelRadius: 63,
-  },
-  { name: "Cerulean", code: "PB36", hue: 257.6, color: "#81b0f4" },
-  {
-    name: "Ultramarine", code: "PB29", hue: 267.6,
-    color: "#577bea", labelRadius: 55,
-  },
+  { name: "Raw sienna", code: "PBr7", hue: 77.9, color: "#f1c175" },
+  { name: "Nickel azo yellow", code: "PY150", hue: 94.3, color: "#f6d34c" },
+  { name: "Raw umber", code: "PBr7", hue: 101.6, color: "#8a8980" },
+  { name: "Benzimidazolone yellow medium", code: "PY154", hue: 103.3, color: "#fdee60" },
+  { name: "Cadmium yellow medium", code: "PY35", hue: 104.1, color: "#fcec32" },
+  { name: "Benzimidazolone yellow light", code: "PY175", hue: 106.1, color: "#fbf471" },
+  { name: "Cadmium yellow light", code: "PY35", hue: 108.1, color: "#fcf965" },
+  { name: "Green gold", code: "PY129", hue: 111.4, color: "#c6cb47" },
+  { name: "Sap green hue", code: "hue", hue: 130.9, color: "#7c9e5c" },
+  { name: "Chromium oxide green", code: "PG17", hue: 145.6, color: "#7bab7d" },
+  { name: "Phthalo green yellow shade", code: "PG36", hue: 155.7, color: "#03b66b" },
+  { name: "Phthalo green blue shade", code: "PG7", hue: 156.6, color: "#03a060" },
+  { name: "Permanent green light", code: "mix", hue: 163.1, color: "#06b27d" },
+  { name: "Viridian green hue", code: "hue", hue: 170.0, color: "#60b599" },
+  { name: "Cobalt green", code: "PG26", hue: 178.7, color: "#90bab0" },
+  { name: "Cobalt teal", code: "PG50", hue: 203.9, color: "#76dbe5" },
+  { name: "Turquoise phthalo", code: "mix", hue: 207.0, color: "#038f9d" },
+  { name: "Cobalt turquoise", code: "PG50", hue: 214.4, color: "#6eb2c2" },
+  { name: "Manganese blue hue", code: "hue", hue: 219.6, color: "#4cccef" },
+  { name: "Cerulean blue deep", code: "PB36", hue: 243.1, color: "#6fa3cc" },
+  { name: "Primary cyan", code: "mix", hue: 244.8, color: "#0793e5" },
+  { name: "Phthalo blue green shade", code: "PB15:3", hue: 250.9, color: "#0376ce" },
+  { name: "Phthalo blue red shade", code: "PB15:1", hue: 253.4, color: "#0570cf" },
+  { name: "Cerulean blue", code: "PB36", hue: 257.6, color: "#81b0f4" },
+  { name: "Cobalt blue", code: "PB28", hue: 264.0, color: "#6f98ef" },
+  { name: "Ultramarine blue", code: "PB29", hue: 267.6, color: "#577bea" },
   { name: "Dioxazine purple", code: "PV23", hue: 297.7, color: "#634895" },
+  { name: "Ultramarine violet", code: "PV15", hue: 306.6, color: "#c7b0e0" },
+  { name: "Cobalt violet hue", code: "hue", hue: 327.9, color: "#af7bad" },
+  { name: "Quinacridone violet", code: "PV19", hue: 331.7, color: "#a4689c" },
   { name: "Quinacridone magenta", code: "PR122", hue: 342.4, color: "#d45cac" },
+  { name: "Quinacridone red", code: "PR209", hue: 356.3, color: "#e66099" },
 ];
+const PIGMENT_CLUSTER_DEGREES = 5;
 
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
@@ -739,6 +759,12 @@ function initializePalette() {
   const wheelShell = document.querySelector(".wheel-shell");
   const pigmentGuide = document.querySelector("#pigment-guide");
   const pigmentGuideToggle = document.querySelector("#pigment-guide-toggle");
+  const pigmentShelf = document.querySelector("#pigment-shelf");
+  const pigmentShelfList = document.querySelector("#pigment-shelf-list");
+  const pigmentPopover = document.querySelector("#pigment-popover");
+  const pigmentPopoverTitle = document.querySelector("#pigment-popover-title");
+  const pigmentPopoverList = document.querySelector("#pigment-popover-list");
+  const pigmentPopoverClose = document.querySelector("#pigment-popover-close");
   const customControls = document.querySelector("#custom-controls");
   const customAngle = document.querySelector("#custom-angle");
   const customPercent = document.querySelector("#custom-percent");
@@ -752,51 +778,183 @@ function initializePalette() {
   const responseCache = new Map();
   const serverParams = new URLSearchParams(new FormData(form));
 
-  const pigmentMarkers = ARTIST_PIGMENTS.map((pigment) => {
-    const radians = (pigment.hue - 90) * Math.PI / 180;
-    const tick = document.createElement("span");
-    const label = document.createElement("span");
+  const averagePigmentHue = (pigments) => {
+    const vectors = pigments.reduce((total, pigment) => {
+      const radians = pigment.hue * Math.PI / 180;
+      return {
+        x: total.x + Math.cos(radians),
+        y: total.y + Math.sin(radians),
+      };
+    }, { x: 0, y: 0 });
+    return normalizeHue(Math.atan2(vectors.y, vectors.x) * 180 / Math.PI);
+  };
+
+  const pigmentClusters = [...ARTIST_PIGMENTS]
+    .sort((first, second) => first.hue - second.hue)
+    .reduce((clusters, pigment) => {
+      const current = clusters.at(-1);
+      if (
+        current
+        && circularDistance(pigment.hue, averagePigmentHue(current))
+          <= PIGMENT_CLUSTER_DEGREES
+      ) {
+        current.push(pigment);
+      } else {
+        clusters.push([pigment]);
+      }
+      return clusters;
+    }, []);
+
+  const createPigmentEntry = (pigment, className) => {
+    const entry = document.createElement("span");
     const swatch = document.createElement("span");
     const name = document.createElement("span");
     const code = document.createElement("small");
+    entry.className = className;
+    entry.style.setProperty("--pigment-color", pigment.color);
+    entry.title = `${pigment.name} · ${pigment.code} · approximately ${Math.round(
+      pigment.hue,
+    )}°`;
+    swatch.className = "pigment-swatch";
+    swatch.setAttribute("aria-hidden", "true");
+    name.textContent = pigment.name;
+    code.textContent = pigment.code;
+    entry.append(swatch, name, code);
+    return entry;
+  };
+
+  const pigmentMarkers = ARTIST_PIGMENTS.map((pigment) => {
+    const radians = (pigment.hue - 90) * Math.PI / 180;
+    const tick = document.createElement("span");
     const tickRadius = 48.8;
-    const labelRadius = pigment.labelRadius || 59;
 
     tick.className = "pigment-tick";
     tick.style.left = `${50 + Math.cos(radians) * tickRadius}%`;
     tick.style.top = `${50 + Math.sin(radians) * tickRadius}%`;
     tick.style.setProperty("--pigment-color", pigment.color);
+    tick.setAttribute("aria-hidden", "true");
+    pigmentGuide.append(tick);
+    return { pigment, tick };
+  });
 
+  let activePigmentLabel;
+  const closePigmentPopover = (restoreFocus = false) => {
+    pigmentPopover.hidden = true;
+    document.querySelectorAll(".pigment-label[aria-expanded]").forEach((label) => {
+      label.setAttribute("aria-expanded", "false");
+    });
+    if (restoreFocus && activePigmentLabel) activePigmentLabel.focus();
+    activePigmentLabel = undefined;
+  };
+
+  const openPigmentPopover = (pigments, label) => {
+    activePigmentLabel = label;
+    document.querySelectorAll(".pigment-label[aria-expanded]").forEach((otherLabel) => {
+      otherLabel.setAttribute("aria-expanded", String(otherLabel === label));
+    });
+    const hue = Math.round(averagePigmentHue(pigments));
+    const pigmentWord = pigments.length === 1 ? "pigment" : "pigments";
+    pigmentPopoverTitle.textContent = `${pigments.length} ${pigmentWord} near ${hue}°`;
+    pigmentPopoverList.replaceChildren(...pigments.map((pigment) => (
+      createPigmentEntry(pigment, "pigment-popover-item")
+    )));
+    pigmentPopover.hidden = false;
+    pigmentPopoverClose.focus({ preventScroll: true });
+  };
+
+  const pigmentLabels = pigmentClusters.map((pigments) => {
+    const label = document.createElement("button");
+    label.type = "button";
     label.className = "pigment-label";
-    label.style.left = `${50 + Math.cos(radians) * labelRadius}%`;
-    label.style.top = `${50 + Math.sin(radians) * labelRadius}%`;
-    label.style.setProperty("--pigment-color", pigment.color);
-    label.title = `${pigment.name} · ${pigment.code} · approximately ${Math.round(
-      pigment.hue,
-    )}°`;
-
-    swatch.className = "pigment-swatch";
-    swatch.setAttribute("aria-hidden", "true");
-    name.textContent = pigment.name;
-    code.textContent = pigment.code;
-    label.append(swatch, name, code);
-    pigmentGuide.append(tick, label);
-    return { pigment, tick, label };
+    label.hidden = true;
+    label.setAttribute("aria-expanded", "false");
+    label.setAttribute("aria-controls", "pigment-popover");
+    const marker = { pigments, label, activePigments: [] };
+    label.addEventListener("click", () => {
+      if (marker.activePigments.length) openPigmentPopover(marker.activePigments, label);
+    });
+    pigmentGuide.append(label);
+    return marker;
   });
 
   const updatePigmentGuide = (state) => {
     const sections = state.mode === "custom"
       ? state.sections
       : [{ start: state.start, end: state.end }];
-    pigmentMarkers.forEach(({ pigment, tick, label }) => {
-      const selected = sections.some((section) => (
+    const pigmentIsSelected = (pigment) => sections.some((section) => (
         clockwiseSpan(section.start, pigment.hue)
         <= clockwiseSpan(section.start, section.end)
-      ));
+    ));
+    const selectedPigments = ARTIST_PIGMENTS.filter(pigmentIsSelected)
+      .sort((first, second) => first.hue - second.hue);
+
+    pigmentMarkers.forEach(({ pigment, tick }) => {
+      const selected = pigmentIsSelected(pigment);
       tick.classList.toggle("selected", selected);
-      label.classList.toggle("selected", selected);
     });
+
+    const visibleLabels = pigmentLabels.filter((marker) => {
+      marker.activePigments = marker.pigments.filter(pigmentIsSelected);
+      marker.label.hidden = marker.activePigments.length === 0;
+      return marker.activePigments.length > 0;
+    });
+    const labelRadii = [56, 68, 80, 92];
+    const placedLabelBounds = [];
+    const boundsOverlap = (candidate) => placedLabelBounds.some((placed) => (
+      candidate.left < placed.right + 5
+      && candidate.right > placed.left - 5
+      && candidate.top < placed.bottom + 5
+      && candidate.bottom > placed.top - 5
+    ));
+    visibleLabels.forEach((marker) => {
+      const { label, activePigments } = marker;
+      const hue = averagePigmentHue(activePigments);
+      const radians = (hue - 90) * Math.PI / 180;
+      label.style.setProperty("--pigment-color", activePigments[0].color);
+      label.replaceChildren();
+      if (activePigments.length === 1) {
+        const entry = createPigmentEntry(activePigments[0], "pigment-label-entry");
+        label.append(...entry.childNodes);
+        label.title = entry.title;
+        label.setAttribute("aria-label", entry.title);
+      } else {
+        const swatch = document.createElement("span");
+        const count = document.createElement("span");
+        const hueText = document.createElement("small");
+        swatch.className = "pigment-swatch pigment-cluster-swatch";
+        swatch.setAttribute("aria-hidden", "true");
+        swatch.style.background = `linear-gradient(135deg, ${activePigments.map(
+          (pigment) => pigment.color,
+        ).join(", ")})`;
+        count.textContent = `${activePigments.length} pigments`;
+        hueText.textContent = `${Math.round(hue)}°`;
+        label.append(swatch, count, hueText);
+        label.title = activePigments.map((pigment) => pigment.name).join(", ");
+        label.setAttribute(
+          "aria-label",
+          `${activePigments.length} pigments near ${Math.round(hue)} degrees. Show list.`,
+        );
+      }
+      let labelBounds;
+      for (const radius of labelRadii) {
+        label.style.left = `${50 + Math.cos(radians) * radius}%`;
+        label.style.top = `${50 + Math.sin(radians) * radius}%`;
+        labelBounds = label.getBoundingClientRect();
+        if (!boundsOverlap(labelBounds)) break;
+      }
+      placedLabelBounds.push(labelBounds);
+    });
+
+    pigmentShelfList.replaceChildren(...selectedPigments.map((pigment) => (
+      createPigmentEntry(pigment, "pigment-shelf-item")
+    )));
+    closePigmentPopover();
   };
+
+  pigmentPopoverClose.addEventListener("click", () => closePigmentPopover(true));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !pigmentPopover.hidden) closePigmentPopover(true);
+  });
 
   const fetchResults = async (url, signal) => {
     if (responseCache.has(url)) return responseCache.get(url);
@@ -1051,9 +1209,12 @@ function initializePalette() {
   pigmentGuideToggle.addEventListener("click", () => {
     const visible = pigmentGuide.hidden;
     pigmentGuide.hidden = !visible;
+    pigmentShelf.hidden = !visible;
+    if (!visible) closePigmentPopover();
     pigmentGuideToggle.classList.toggle("active", visible);
     pigmentGuideToggle.setAttribute("aria-pressed", String(visible));
     wheelShell.classList.toggle("show-pigments", visible);
+    if (visible) updatePigmentGuide(wheel.state());
   });
   document.querySelector("#art-results").addEventListener("click", (event) => {
     const button = event.target.closest(".show-more-images");

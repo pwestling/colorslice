@@ -162,9 +162,12 @@ a { color: inherit; }
   aspect-ratio: 1;
 }
 
-.wheel-shell.show-pigments { margin-block: 50px; }
+.wheel-shell.show-pigments { margin-block: 120px; }
 
-.pigment-guide[hidden] { display: none; }
+.pigment-guide[hidden],
+.pigment-popover[hidden],
+.pigment-shelf[hidden],
+.pigment-label[hidden] { display: none; }
 
 .pigment-guide {
   position: absolute;
@@ -182,13 +185,13 @@ a { color: inherit; }
 }
 
 .pigment-tick {
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   background: var(--pigment-color);
-  border: 2px solid var(--paper);
+  border: 1.5px solid var(--paper);
   border-radius: 50%;
   box-shadow: 0 0 0 1px var(--ink);
-  opacity: 0.46;
+  opacity: 0.5;
 }
 
 .pigment-label {
@@ -196,12 +199,14 @@ a { color: inherit; }
   grid-template-columns: auto auto;
   align-items: center;
   column-gap: 5px;
+  width: auto;
   min-height: 27px;
-  max-width: 132px;
+  max-width: 124px;
+  margin: 0;
   padding: 5px 7px;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--paper) 91%, transparent);
-  border: 1px solid var(--line);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--panel-selected) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 28%, transparent);
   border-radius: 8px;
   box-shadow: 0 4px 14px var(--panel-shadow);
   font-size: 9px;
@@ -209,6 +214,15 @@ a { color: inherit; }
   line-height: 1.08;
   white-space: nowrap;
   backdrop-filter: blur(7px);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pigment-label:hover,
+.pigment-label:focus-visible {
+  z-index: 3;
+  border-color: var(--ink);
+  transform: translate(-50%, -50%) scale(1.05);
 }
 
 .pigment-label small {
@@ -228,15 +242,69 @@ a { color: inherit; }
   border-radius: 50%;
 }
 
-.pigment-tick.selected { width: 11px; height: 11px; opacity: 1; }
+.pigment-tick.selected { width: 10px; height: 10px; opacity: 1; }
 
-.pigment-label.selected {
-  z-index: 1;
+.pigment-popover {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 8;
+  width: min(280px, 56%);
+  max-height: 48%;
+  padding: 18px;
+  overflow-y: auto;
   color: var(--ink);
-  background: var(--panel-selected);
-  border-color: color-mix(in srgb, var(--ink) 34%, transparent);
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1.04);
+  background: color-mix(in srgb, var(--panel-selected) 96%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 14px 40px var(--wheel-shadow);
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(12px);
+}
+
+.pigment-popover-close {
+  float: right;
+  width: auto;
+  margin: 0 0 6px 12px;
+  padding: 3px 7px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.pigment-popover-title {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.pigment-popover-list {
+  display: grid;
+  gap: 7px;
+  clear: both;
+}
+
+.pigment-popover-item,
+.pigment-shelf-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.15;
+}
+
+.pigment-popover-item small,
+.pigment-shelf-item small {
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.03em;
 }
 
 #color-wheel {
@@ -344,6 +412,28 @@ a { color: inherit; }
   background: conic-gradient(#f44336, #f7d51d, #17a663, #1688d4, #6949a8, #d93491, #f44336);
   border: 1px solid rgb(0 0 0 / 28%);
   border-radius: 50%;
+}
+
+.pigment-shelf {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.pigment-shelf-label { margin-bottom: 10px; }
+
+.pigment-shelf-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.pigment-shelf-item {
+  grid-template-columns: auto auto auto;
+  padding: 6px 8px;
+  background: var(--empty-surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
 .control-label { color: var(--muted); }
@@ -918,9 +1008,9 @@ a { color: inherit; }
   .hero { min-height: 0; padding: 34px 0 28px; }
   .wheel-column { width: 100%; }
   .wheel-shell { width: min(92vw, 470px); }
-  .wheel-shell.show-pigments { width: min(64vw, 360px); margin-block: 34px; }
-  .pigment-label { max-width: 92px; padding: 4px 5px; font-size: 7.5px; white-space: normal; }
-  .pigment-label small { display: none; }
+  .wheel-shell.show-pigments { width: min(88vw, 440px); margin-block: 18px; }
+  .pigment-label { display: none !important; }
+  .pigment-shelf-item { flex: 1 1 145px; }
   #hue-readout { font-size: 48px; }
   .control-panel { margin-bottom: 64px; }
   .controls-inner { display: block; }
