@@ -26,12 +26,20 @@ from fasthtml.common import (
     Strong,
     fast_app,
 )
+from PIL import UnidentifiedImageError
+from starlette.datastructures import UploadFile
 from starlette.requests import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
-from colorslice.color import hue_name, noise_filtered_histogram
+from colorslice.color import (
+    analyze_image_bytes,
+    hue_name,
+    noise_filtered_histogram,
+    palette_ranges,
+    salient_slices_coverage,
+)
 from colorslice.models import Artwork, ArtworkMatch, ArtworkSet
 from colorslice.repository import (
     CATALOG_PROFILE_VERSION,
@@ -56,6 +64,7 @@ RESULT_PAGE_SIZE = 96
 RELAXED_RESULT_BATCH_SIZE = 10
 WHEEL_SEGMENT_DEGREES = 15.0
 CUSTOM_MINIMUM_RESULTS = 5
+MAX_IMAGE_UPLOAD_BYTES = 4_000_000
 repository = ArtworkRepository()
 repository.initialize()
 if repository.is_postgres:
@@ -489,14 +498,37 @@ def _control_panel():
             ),
             Div(
                 P("REFERENCE", cls="control-label"),
-                Button(
-                    Span(cls="pigment-toggle-swatch", aria_hidden="true"),
-                    Span("Paint pigments"),
-                    type="button",
-                    id="pigment-guide-toggle",
-                    cls="pigment-guide-toggle",
-                    aria_pressed="false",
-                    aria_controls="pigment-guide pigment-shelf",
+                Div(
+                    Button(
+                        Span(cls="pigment-toggle-swatch", aria_hidden="true"),
+                        Span("Paint pigments"),
+                        type="button",
+                        id="pigment-guide-toggle",
+                        cls="pigment-guide-toggle",
+                        aria_pressed="false",
+                        aria_controls="pigment-guide pigment-shelf",
+                    ),
+                    Button(
+                        Span("From image", id="image-palette-button-label"),
+                        type="button",
+                        id="image-palette-button",
+                        cls="image-palette-button",
+                        aria_controls="image-palette-status",
+                    ),
+                    cls="reference-actions",
+                ),
+                Input(
+                    type="file",
+                    id="image-palette-input",
+                    accept="image/jpeg,image/png,image/webp",
+                    hidden=True,
+                ),
+                P(
+                    id="image-palette-status",
+                    cls="image-palette-status",
+                    role="status",
+                    aria_live="polite",
+                    hidden=True,
                 ),
                 Div(
                     P("PIGMENTS IN SLICE", cls="control-label pigment-shelf-label"),
@@ -854,6 +886,72 @@ def get(
         return P("Search for an artwork.", cls="explorer-empty")
     artworks = _cached_explorer_search(safe_query.lower(), safe_set_code)
     return _explorer_search_results(artworks)
+
+
+@rt("/palette/from-image")
+async def post(request: Request):
+    form = await request.form(
+        max_files=1,
+        max_fields=4,
+        max_part_size=MAX_IMAGE_UPLOAD_BYTES,
+    )
+    upload = form.get("image")
+    if not isinstance(upload, UploadFile):
+        return JSONResponse({"error": "Choose an image file."}, status_code=400)
+    if upload.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        return JSONResponse(
+            {"error": "Use a JPEG, PNG, or WebP image."},
+            status_code=415,
+        )
+
+    try:
+        content = await upload.read(MAX_IMAGE_UPLOAD_BYTES + 1)
+    finally:
+        await upload.close()
+    if len(content) > MAX_IMAGE_UPLOAD_BYTES:
+        return JSONResponse(
+            {"error": "The image is too large."},
+            status_code=413,
+        )
+
+    try:
+        profile = analyze_image_bytes(content)
+    except (OSError, UnidentifiedImageError, ValueError):
+        return JSONResponse(
+            {"error": "That image could not be read."},
+            status_code=422,
+        )
+
+    ranges = palette_ranges(
+        profile.hue_histogram,
+        profile.area_hue_histogram,
+    )
+    if not ranges:
+        return JSONResponse(
+            {"error": "No distinct hues were found in that image."},
+            status_code=422,
+        )
+
+    sections = tuple(
+        (
+            (start + ((end - start) % 360.0) / 2.0) % 360.0,
+            (end - start) % 360.0,
+        )
+        for start, end in ranges
+    )
+    coverage = min(
+        salient_slices_coverage(profile.hue_histogram, sections),
+        salient_slices_coverage(profile.area_hue_histogram, sections),
+    )
+    return JSONResponse(
+        {
+            "ranges": [
+                {"start": start, "end": end}
+                for start, end in ranges
+            ],
+            "coverage": round(coverage * 100.0, 1),
+        }
+    )
 
 
 @rt("/explore/artwork")

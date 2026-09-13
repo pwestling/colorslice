@@ -1,3 +1,7 @@
+from io import BytesIO
+
+import numpy as np
+from PIL import Image
 import pytest
 from starlette.testclient import TestClient
 
@@ -47,6 +51,10 @@ def test_home_page_contains_palette_controls():
     assert 'id="pigment-shelf-list"' in response.text
     assert 'id="pigment-popover"' in response.text
     assert "Paint pigments" in response.text
+    assert 'id="image-palette-button"' in response.text
+    assert 'id="image-palette-input"' in response.text
+    assert 'id="image-palette-status"' in response.text
+    assert "From image" in response.text
     assert 'aria-controls="pigment-guide pigment-shelf"' in response.text
     assert "24-segment color wheel" not in response.text
     assert 'class="wheel-label' not in response.text
@@ -89,6 +97,35 @@ def test_home_page_contains_palette_controls():
     assert 'data-artwork-id="magic:' in response.text
     assert 'href="/?view=art&amp;art=magic:' in response.text
     assert "View hue profile for" in response.text
+
+
+def test_image_palette_endpoint_returns_complete_custom_ranges():
+    pixels = np.zeros((80, 120, 3), dtype=np.uint8)
+    pixels[:, :60] = (255, 0, 0)
+    pixels[:, 60:] = (0, 0, 255)
+    image = Image.fromarray(pixels, mode="RGB")
+    output = BytesIO()
+    image.save(output, format="PNG")
+
+    response = client.post(
+        "/palette/from-image",
+        files={"image": ("palette.png", output.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["coverage"] == 100.0
+    assert 1 <= len(payload["ranges"]) <= 4
+
+
+def test_image_palette_endpoint_rejects_invalid_image():
+    response = client.post(
+        "/palette/from-image",
+        files={"image": ("broken.png", b"not an image", "image/png")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "That image could not be read."
 
 
 def test_artwork_endpoint_supports_high_match_thresholds():

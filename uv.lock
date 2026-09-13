@@ -68,6 +68,7 @@ dependencies = [
     { name = "pillow" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-fasthtml" },
+    { name = "python-multipart" },
 ]
 
 [package.dev-dependencies]
@@ -82,6 +83,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=11.2.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.9" },
     { name = "python-fasthtml", specifier = "==0.14.11" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
 ]
 
 [package.metadata.requires-dev]

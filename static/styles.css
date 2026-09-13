@@ -382,7 +382,14 @@ a { color: inherit; }
 
 .pigment-control-block { border-top: 1px solid var(--line); }
 
-.pigment-guide-toggle {
+.reference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pigment-guide-toggle,
+.image-palette-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -398,7 +405,9 @@ a { color: inherit; }
 }
 
 .pigment-guide-toggle:hover,
-.pigment-guide-toggle:focus-visible { border-color: var(--ink); }
+.pigment-guide-toggle:focus-visible,
+.image-palette-button:hover,
+.image-palette-button:focus-visible { border-color: var(--ink); }
 
 .pigment-guide-toggle.active {
   color: var(--acid-ink);
@@ -412,6 +421,27 @@ a { color: inherit; }
   background: conic-gradient(#f44336, #f7d51d, #17a663, #1688d4, #6949a8, #d93491, #f44336);
   border: 1px solid rgb(0 0 0 / 28%);
   border-radius: 50%;
+}
+
+.image-palette-button {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.image-palette-button[aria-busy="true"] { cursor: wait; }
+
+.image-palette-status {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.image-palette-status.is-error { color: #a83e38; }
+
+@media (prefers-color-scheme: dark) {
+  .image-palette-status.is-error { color: #ff9a91; }
 }
 
 .pigment-shelf {

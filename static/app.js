@@ -8,6 +8,8 @@ const WHEEL_LIGHT_LIGHTNESS = 0.90;
 const WHEEL_DARK_END = 0.10;
 const WHEEL_VIVID_END = 0.70;
 const WHEEL_PEAK_SEARCH_STEPS = 100;
+const IMAGE_PALETTE_UPLOAD_LIMIT = 3_500_000;
+const IMAGE_PALETTE_MAX_DIMENSION = 1000;
 
 // Approximate OKLCH positions sampled from GOLDEN Heavy Body Acrylic 1:1 tint
 // swatches, where transparent paints reveal their undertones. Mixtures and hue
@@ -163,6 +165,39 @@ const circularDistance = (first, second) => Math.abs(
 const themeColor = (name) => getComputedStyle(document.documentElement)
   .getPropertyValue(name)
   .trim();
+
+async function imagePaletteUpload(file) {
+  if (file.size <= IMAGE_PALETTE_UPLOAD_LIMIT) return file;
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = objectUrl;
+    await new Promise((resolve, reject) => {
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", reject, { once: true });
+    });
+    const scale = Math.min(
+      1,
+      IMAGE_PALETTE_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
+    );
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.9);
+    });
+    if (!blob) throw new Error("Image conversion failed.");
+    return blob;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 function sectionsFromUrl(value) {
   if (!value) return [];
@@ -761,6 +796,10 @@ function initializePalette() {
   const pigmentGuideToggle = document.querySelector("#pigment-guide-toggle");
   const pigmentShelf = document.querySelector("#pigment-shelf");
   const pigmentShelfList = document.querySelector("#pigment-shelf-list");
+  const imagePaletteButton = document.querySelector("#image-palette-button");
+  const imagePaletteButtonLabel = document.querySelector("#image-palette-button-label");
+  const imagePaletteInput = document.querySelector("#image-palette-input");
+  const imagePaletteStatus = document.querySelector("#image-palette-status");
   const pigmentPopover = document.querySelector("#pigment-popover");
   const pigmentPopoverTitle = document.querySelector("#pigment-popover-title");
   const pigmentPopoverList = document.querySelector("#pigment-popover-list");
@@ -1203,6 +1242,66 @@ function initializePalette() {
       syncSliceUrl(wheel.state());
       loadResults({ immediate: true });
     });
+  });
+
+  const setImagePaletteStatus = (message, isError = false) => {
+    imagePaletteStatus.textContent = message;
+    imagePaletteStatus.hidden = !message;
+    imagePaletteStatus.classList.toggle("is-error", isError);
+  };
+  imagePaletteButton.addEventListener("click", () => imagePaletteInput.click());
+  imagePaletteInput.addEventListener("change", async () => {
+    const file = imagePaletteInput.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setImagePaletteStatus("Use a JPEG, PNG, or WebP image.", true);
+      imagePaletteInput.value = "";
+      return;
+    }
+
+    imagePaletteButton.disabled = true;
+    imagePaletteButton.setAttribute("aria-busy", "true");
+    imagePaletteButtonLabel.textContent = "Analyzing…";
+    setImagePaletteStatus(`Analyzing ${file.name}…`);
+    try {
+      const upload = await imagePaletteUpload(file);
+      const body = new FormData();
+      body.append("image", upload, file.name);
+      const response = await fetch("/palette/from-image", {
+        method: "POST",
+        body,
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "The image could not be analyzed.");
+      }
+      const sections = Array.isArray(payload.ranges)
+        ? payload.ranges.slice(0, 4).filter((range) => (
+          Number.isFinite(range.start) && Number.isFinite(range.end)
+        ))
+        : [];
+      if (!sections.length) throw new Error("No distinct hues were found in that image.");
+
+      wheel.restore({ mode: "custom", sections });
+      const state = wheel.state();
+      updateReadout(state);
+      syncSliceUrl(state);
+      loadResults({ immediate: true });
+      const sectionWord = sections.length === 1 ? "slice" : "slices";
+      setImagePaletteStatus(
+        `${file.name} · ${payload.coverage}% hue coverage · ${sections.length} ${sectionWord}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "The image could not be analyzed.";
+      setImagePaletteStatus(message, true);
+    } finally {
+      imagePaletteButton.disabled = false;
+      imagePaletteButton.removeAttribute("aria-busy");
+      imagePaletteButtonLabel.textContent = "From image";
+      imagePaletteInput.value = "";
+    }
   });
 
   addCustomSection.addEventListener("click", () => wheel.addSection());

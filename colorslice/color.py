@@ -11,6 +11,8 @@ from colorslice.models import HUE_BIN_COUNT
 HUE_NOISE_BIN_FLOOR = 0.0011
 HUE_NOISE_GROUP_FLOOR = 0.004
 HUE_NOISE_GROUP_RADIUS = 3
+PALETTE_MERGE_GAP_DEGREES = 10.0
+PALETTE_MAX_SECTIONS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +179,82 @@ def noise_filtered_histogram(
     if kept_total <= 0.0:
         return normalized
     return tuple(weight / kept_total for weight in kept)
+
+
+def _circular_runs(mask: list[bool], value: bool) -> list[tuple[int, ...]]:
+    if not mask or value not in mask:
+        return []
+    if all(entry is value for entry in mask):
+        return [tuple(range(len(mask)))]
+
+    anchor = next(index for index, entry in enumerate(mask) if entry is not value)
+    runs: list[tuple[int, ...]] = []
+    current: list[int] = []
+    for offset in range(1, len(mask) + 1):
+        index = (anchor + offset) % len(mask)
+        if mask[index] is value:
+            current.append(index)
+        elif current:
+            runs.append(tuple(current))
+            current = []
+    return runs
+
+
+def palette_ranges(
+    hue_histogram: tuple[float, ...],
+    area_hue_histogram: tuple[float, ...],
+    *,
+    maximum_sections: int = PALETTE_MAX_SECTIONS,
+    merge_gap_degrees: float = PALETTE_MERGE_GAP_DEGREES,
+) -> tuple[tuple[float, float], ...]:
+    """Cover every salient hue with a compact set of circular ranges.
+
+    Small gaps are bridged first. If more ranges remain than the interface can
+    sensibly expose, the closest remaining ranges are merged until they fit.
+    Returned pairs are start/end hue boundaries rather than centers/spans.
+    """
+    if not hue_histogram or not area_hue_histogram:
+        return ()
+    if len(hue_histogram) != len(area_hue_histogram):
+        raise ValueError("palette histograms must use the same bin count")
+    if maximum_sections < 1:
+        raise ValueError("maximum_sections must be at least one")
+
+    filtered_hue = noise_filtered_histogram(hue_histogram)
+    filtered_area = noise_filtered_histogram(area_hue_histogram)
+    mask = [
+        hue_weight > 0.0 or area_weight > 0.0
+        for hue_weight, area_weight in zip(filtered_hue, filtered_area, strict=True)
+    ]
+    if not any(mask):
+        return ()
+
+    bin_width = 360.0 / len(mask)
+    maximum_gap_bins = max(0, math.floor(merge_gap_degrees / bin_width))
+    for gap in _circular_runs(mask, False):
+        if len(gap) <= maximum_gap_bins:
+            for index in gap:
+                mask[index] = True
+
+    while len(_circular_runs(mask, True)) > maximum_sections:
+        gaps = _circular_runs(mask, False)
+        if not gaps:
+            break
+        closest_gap = min(gaps, key=len)
+        for index in closest_gap:
+            mask[index] = True
+
+    if all(mask):
+        # A 359° section includes every 5° histogram center while remaining a
+        # valid, draggable custom range in the browser.
+        return ((1.0, 0.0),)
+
+    ranges = []
+    for run in _circular_runs(mask, True):
+        start = run[0] * bin_width
+        end = ((run[-1] + 1) * bin_width) % 360.0
+        ranges.append((round(start, 3), round(end, 3)))
+    return tuple(sorted(ranges))
 
 
 def salient_slice_coverage(

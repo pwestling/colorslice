@@ -7,6 +7,7 @@ from colorslice.color import (
     analyze_image_bytes,
     circular_distance,
     noise_filtered_histogram,
+    palette_ranges,
     rgb_to_oklch,
     salient_slice_coverage,
     salient_slices_coverage,
@@ -102,6 +103,54 @@ def test_salient_coverage_preserves_a_small_coherent_hue_group():
     coverage = salient_slice_coverage(tuple(histogram), center=32.5, span=15.0)
 
     assert coverage < 1.0
+
+
+def test_palette_ranges_merge_nearby_hue_groups():
+    histogram = [0.0] * 72
+    histogram[10] = 0.5
+    histogram[12] = 0.5
+
+    ranges = palette_ranges(tuple(histogram), tuple(histogram))
+
+    assert ranges == ((50.0, 65.0),)
+
+
+def test_palette_ranges_wrap_across_red():
+    histogram = [0.0] * 72
+    histogram[71] = 0.5
+    histogram[0] = 0.5
+
+    ranges = palette_ranges(tuple(histogram), tuple(histogram))
+
+    assert ranges == ((355.0, 5.0),)
+
+
+def test_palette_ranges_cover_both_histograms_with_at_most_four_sections():
+    hue_histogram = [0.0] * 72
+    area_histogram = [0.0] * 72
+    for index in (2, 14, 26):
+        hue_histogram[index] = 1 / 3
+    for index in (38, 50, 62):
+        area_histogram[index] = 1 / 3
+
+    ranges = palette_ranges(tuple(hue_histogram), tuple(area_histogram))
+    slices = tuple(
+        (
+            (start + ((end - start) % 360.0) / 2.0) % 360.0,
+            (end - start) % 360.0,
+        )
+        for start, end in ranges
+    )
+
+    assert len(ranges) == 4
+    assert salient_slices_coverage(tuple(hue_histogram), slices) == 1.0
+    assert salient_slices_coverage(tuple(area_histogram), slices) == 1.0
+
+
+def test_palette_ranges_report_no_hue_for_neutral_image():
+    empty = (0.0,) * 72
+
+    assert palette_ranges(empty, empty) == ()
 
 
 def test_sheltering_ancient_blue_group_survives_noise_filter():
