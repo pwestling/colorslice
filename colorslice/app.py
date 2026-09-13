@@ -517,12 +517,6 @@ def _control_panel():
                     ),
                     cls="reference-actions",
                 ),
-                Input(
-                    type="file",
-                    id="image-palette-input",
-                    accept="image/jpeg,image/png,image/webp",
-                    hidden=True,
-                ),
                 P(
                     id="image-palette-status",
                     cls="image-palette-status",
@@ -843,6 +837,12 @@ def get():
                     cls="hero",
                 ),
                 _control_panel(),
+                Input(
+                    type="file",
+                    id="image-palette-input",
+                    accept="image/jpeg,image/png,image/webp",
+                    hidden=True,
+                ),
                 Div(
                     Span(cls="custom-loading-spinner", aria_hidden="true"),
                     Span(id="custom-loading-message"),
