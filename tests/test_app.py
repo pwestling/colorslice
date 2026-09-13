@@ -53,6 +53,8 @@ def test_home_page_contains_palette_controls():
     assert "Paint pigments" in response.text
     assert 'id="image-palette-button"' in response.text
     assert 'id="image-palette-input"' in response.text
+    assert 'id="image-palette-feedback"' in response.text
+    assert 'id="image-palette-preview"' in response.text
     assert 'id="image-palette-status"' in response.text
     assert "From image" in response.text
     assert 'aria-controls="pigment-guide pigment-shelf"' in response.text

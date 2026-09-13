@@ -799,6 +799,8 @@ function initializePalette() {
   const imagePaletteButton = document.querySelector("#image-palette-button");
   const imagePaletteButtonLabel = document.querySelector("#image-palette-button-label");
   const imagePaletteInput = document.querySelector("#image-palette-input");
+  const imagePaletteFeedback = document.querySelector("#image-palette-feedback");
+  const imagePalettePreview = document.querySelector("#image-palette-preview");
   const imagePaletteStatus = document.querySelector("#image-palette-status");
   const pigmentPopover = document.querySelector("#pigment-popover");
   const pigmentPopoverTitle = document.querySelector("#pigment-popover-title");
@@ -1244,21 +1246,33 @@ function initializePalette() {
     });
   });
 
+  let imagePalettePreviewUrl;
   const setImagePaletteStatus = (message, isError = false) => {
     imagePaletteStatus.textContent = message;
     imagePaletteStatus.hidden = !message;
     imagePaletteStatus.classList.toggle("is-error", isError);
+    imagePaletteFeedback.hidden = !message && imagePalettePreview.hidden;
+  };
+  const setImagePalettePreview = (file) => {
+    if (imagePalettePreviewUrl) URL.revokeObjectURL(imagePalettePreviewUrl);
+    imagePalettePreviewUrl = file ? URL.createObjectURL(file) : undefined;
+    imagePalettePreview.src = imagePalettePreviewUrl || "";
+    imagePalettePreview.alt = file ? `Preview of ${file.name}` : "";
+    imagePalettePreview.hidden = !file;
+    imagePaletteFeedback.hidden = !file && imagePaletteStatus.hidden;
   };
   imagePaletteButton.addEventListener("click", () => imagePaletteInput.click());
   imagePaletteInput.addEventListener("change", async () => {
     const file = imagePaletteInput.files?.[0];
     if (!file) return;
+    setImagePalettePreview();
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       setImagePaletteStatus("Use a JPEG, PNG, or WebP image.", true);
       imagePaletteInput.value = "";
       return;
     }
 
+    setImagePalettePreview(file);
     imagePaletteButton.disabled = true;
     imagePaletteButton.setAttribute("aria-busy", "true");
     imagePaletteButtonLabel.textContent = "Analyzing…";

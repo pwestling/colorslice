@@ -430,8 +430,28 @@ a { color: inherit; }
 
 .image-palette-button[aria-busy="true"] { cursor: wait; }
 
+.image-palette-feedback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.image-palette-feedback[hidden] { display: none; }
+
+.image-palette-preview {
+  width: 72px;
+  height: 52px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .image-palette-status {
-  margin: 10px 0 0;
+  min-width: 0;
+  margin: 0;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.35;

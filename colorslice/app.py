@@ -513,15 +513,26 @@ def _control_panel():
                         type="button",
                         id="image-palette-button",
                         cls="image-palette-button",
-                        aria_controls="image-palette-status",
+                        aria_controls="image-palette-feedback",
                     ),
                     cls="reference-actions",
                 ),
-                P(
-                    id="image-palette-status",
-                    cls="image-palette-status",
-                    role="status",
-                    aria_live="polite",
+                Div(
+                    Img(
+                        id="image-palette-preview",
+                        cls="image-palette-preview",
+                        alt="",
+                        hidden=True,
+                    ),
+                    P(
+                        id="image-palette-status",
+                        cls="image-palette-status",
+                        role="status",
+                        aria_live="polite",
+                        hidden=True,
+                    ),
+                    id="image-palette-feedback",
+                    cls="image-palette-feedback",
                     hidden=True,
                 ),
                 Div(
